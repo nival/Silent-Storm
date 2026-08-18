@@ -94,7 +94,10 @@ SetFVF  Reset  Present  GetFrontBufferData  DrawPrimitive  CreateVertexShader
 CreateVertexDeclaration  CreateQuery  UpdateSurface  ValidateDevice
 ```
 
-That is the next chapter of the port, and it is well bounded. The shape:
+That is the next chapter of the port, and it is well bounded. The full
+contract — every function the other 264 files call, the three vertex formats,
+the constant-register map, the 155 shaders by name, the register bank and
+render-target model — is written up in [RENDERER.md](RENDERER.md). The shape:
 
 * keep `Gfx.h`/`GScene.h` (the interface the other 260 files talk to) exactly
   as is, and rewrite the five files behind it on **GLES 3.0**

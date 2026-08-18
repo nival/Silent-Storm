@@ -26,6 +26,9 @@
 #include "Script/Script.h"
 #include "ADOImport/BasicDB.h"
 #include "DBFormat/DataFormat.h"
+#include "Main/GPixelFormat.h"
+#include "Image/ImageMMP.h"
+#include "dxt_decode.h"
 
 #define LOGI( ... ) a5_log( A5_PRIORITY_INFO,  __VA_ARGS__ )
 #define LOGE( ... ) a5_log( A5_PRIORITY_ERROR, __VA_ARGS__ )
@@ -524,6 +527,97 @@ void CheckGameDatabase( CReport *pReport, const SDataMountResult &mount )
         pReport->Add( BOOT_FAIL, 0, "GetTable<CString>() returned null - type registry broken" );
 }
 
+/*  Textures.  Every texture the game ships is an MMP container holding DXT
+ *  mip levels; Textures/<id> files are the raw MMPs.  Load a few through the
+ *  engine's own NImage::LoadImageMMP, then decode the top mip in software and
+ *  compare its mean colour with the dwAverageColor the tools stored in the
+ *  header -- if the loader or the decoder were wrong the two would not agree. */
+void CheckTextures( CReport *pReport, const SDataMountResult &mount )
+{
+    if ( !mount.bMounted )
+        return;
+    bool bHaveTextures = false;
+    for ( size_t i = 0; i < mount.assetDirsFound.size(); ++i )
+        if ( mount.assetDirsFound[ i ] == "Textures" )
+            bHaveTextures = true;
+    if ( !bHaveTextures )
+        return;
+
+    pReport->Add( BOOT_HEADING, 0, "Image: MMP/DXT textures" );
+
+    int nLoaded = 0, nDecoded = 0, nMatched = 0;
+    for ( int nFileID = 1; nFileID <= 40 && nLoaded < 6; ++nFileID )
+    {
+        char szPath[ 64 ];
+        snprintf( szPath, sizeof( szPath ), "Textures\\%d", nFileID );
+        CFileStream file;
+        if ( !file.TryOpenRead( szPath ) )
+            continue;
+
+        NHPTimer::STime t;
+        NHPTimer::GetTime( &t );
+        CObj< NImage::CImageMMP > pImage = NImage::LoadImageMMP( &file );
+        const double fElapsed = NHPTimer::GetTimePassed( &t );
+        if ( !pImage )
+        {
+            pReport->Add( BOOT_WARN, 0, "%s: not an MMP", szPath );
+            continue;
+        }
+        ++nLoaded;
+
+        const int nFormat = (int)pImage->GetFormat();
+        const int nWidth = pImage->GetSizeX( 0 ), nHeight = pImage->GetSizeY( 0 );
+        const int nDxt = ( nFormat == NGfx::CF_DXT1 ) ? 1 : ( nFormat == NGfx::CF_DXT3 ) ? 3
+                       : ( nFormat == NGfx::CF_DXT5 ) ? 5 : 0;
+
+        if ( !nDxt )
+        {
+            pReport->Add( BOOT_OK, fElapsed, "%s: %dx%d, format %d, %d mips (not DXT)",
+                          szPath, nWidth, nHeight, nFormat, pImage->GetNumMipLevels() );
+            continue;
+        }
+
+        std::vector< uint8_t > rgba( (size_t)nWidth * nHeight * 4 );
+        if ( !DxtDecode( nDxt, (const uint8_t *)pImage->GetLFB( 0 ),
+                         (size_t)pImage->GetLinearSize( 0 ), nWidth, nHeight, &rgba[ 0 ] ) )
+        {
+            pReport->Add( BOOT_FAIL, fElapsed, "%s: DXT%d decode failed", szPath, nDxt );
+            continue;
+        }
+        ++nDecoded;
+
+        unsigned long long r = 0, g = 0, b = 0;
+        const size_t nPixels = (size_t)nWidth * nHeight;
+        for ( size_t k = 0; k < nPixels; ++k )
+        {
+            r += rgba[ k * 4 ];
+            g += rgba[ k * 4 + 1 ];
+            b += rgba[ k * 4 + 2 ];
+        }
+        const int mr = (int)( r / nPixels ), mg = (int)( g / nPixels ), mb = (int)( b / nPixels );
+        const DWORD dwAverage = pImage->GetAverageColor();
+        const int hr = ( dwAverage >> 16 ) & 255, hg = ( dwAverage >> 8 ) & 255, hb = dwAverage & 255;
+        const int nError = abs( mr - hr ) + abs( mg - hg ) + abs( mb - hb );
+        const bool bMatch = nError <= 24;   /* 8 per channel: DXT quantisation */
+        if ( bMatch )
+            ++nMatched;
+
+        pReport->Add( bMatch ? BOOT_OK : BOOT_WARN, fElapsed,
+                      "%s: %dx%d DXT%d, %d mips; mean rgb(%d,%d,%d) vs header (%d,%d,%d)",
+                      szPath, nWidth, nHeight, nDxt, pImage->GetNumMipLevels(),
+                      mr, mg, mb, hr, hg, hb );
+    }
+
+    if ( nLoaded == 0 )
+        pReport->Add( BOOT_WARN, 0, "no textures found among Textures\\1..40" );
+    else if ( nDecoded > 0 && nMatched == nDecoded )
+        pReport->Add( BOOT_OK, 0, "%d textures loaded, %d DXT levels decoded, all match "
+                      "their stored average colour", nLoaded, nDecoded );
+    else if ( nDecoded > 0 )
+        pReport->Add( BOOT_WARN, 0, "%d textures loaded, %d decoded, %d matched",
+                      nLoaded, nDecoded, nMatched );
+}
+
 void CheckScripting( CReport *pReport )
 {
     pReport->Add( BOOT_HEADING, 0, "Script: Lua 4.0 virtual machine" );
@@ -618,6 +712,7 @@ SBootReport RunBootHarness( const char *pszExternalFilesDir,
     CheckPackages( &report, mount );
     CheckLooseAssets( &report, mount );
     CheckGameDatabase( &report, mount );
+    CheckTextures( &report, mount );
     CheckScripting( &report );
     CheckGameScripts( &report, mount );
 

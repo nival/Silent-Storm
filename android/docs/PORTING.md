@@ -13,7 +13,7 @@ not as a summary of what happened.
         Script        ████████████████████  Lua 4.0 running the game's own .l sources
         MiscDll       ████████████████░░░░  builds; console vars untested
         DBFormat      ████████████████░░░░  builds and runs; blocked on the *data* (see below)
-        Image         ████████░░░░░░░░░░░░  staged, needs a DXT encoder replacement
+        Image         ████████████████████  ported; DXT1/3/5 software decoder in platform/
         Main          ░░░░░░░░░░░░░░░░░░░░  154k lines: renderer, scene, AI, UI, game
         Input         ░░░░░░░░░░░░░░░░░░░░  DirectInput -> touch; replace, do not wrap
         FModSound     ░░░░░░░░░░░░░░░░░░░░  FMOD 3 -> Oboe/OpenSL; replace
@@ -58,15 +58,14 @@ and the harness shows it as a warning rather than a failure. Two ways forward:
 Either way, this is a data-versioning problem, not a porting one: the engine
 code that reads the format it was written for is running on device.
 
-### 2. `Image`
+### 2. `Image` — done
 
-Loading is portable (BMP/TGA/PNG/MMP). The one external dependency is
-`ImagePack.cpp`'s `<s3tc.h>`, a proprietary DXT *encoder*. The shipped assets are
-already DXT-compressed inside MMP containers, so the runtime only needs to
-*decode* — the encoder is a tools-side dependency and can be stubbed out.
-
-libpng is vendored in the tree with both assembly backends; build it with
-`PNG_USE_PNGVCRD` and `PNG_USE_PNGGCCRD` off.
+BMP/TGA/PNG/MMP loading builds and runs; libpng 1.0.9 is built from the tree
+against the NDK's zlib with the x86 assembler back ends off. `ImagePack.cpp` (the
+DXT *encoder* on a proprietary `s3tc.h`) is a tools-side dependency of TexConv
+and is not part of the runtime. `platform/dxt_decode.cpp` decodes DXT1/3/5 in
+software for GPUs without `GL_EXT_texture_compression_s3tc` and for the harness,
+which checks decoded mean colour against the header's `dwAverageColor`.
 
 ### 3. The renderer — `Main`'s `Gfx*` files
 

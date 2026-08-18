@@ -91,7 +91,7 @@ That list *is* the port's diff against 2003. Everything else is new code in
 | `Script` | Lua 4.0 + the engine's C++ wrapper | ported, verified |
 | `MiscDll` | console variables/commands, log streams | ported (builds) |
 | `DBFormat` | the `game.db` schema (130 record classes) | ported, runs; shipped `game.db` files are a newer format than this source — see PORTING.md |
-| `Image` | textures | staged, not yet built |
+| `Image` + libpng | BMP/TGA/PNG and MMP/DXT textures | ported, verified (real textures decode to their stored average colour) |
 | `Main` | renderer, scene, AI, UI, game logic | not started |
 | `Input`, `FModSound` | DirectInput, FMOD | to be replaced, not wrapped |
 

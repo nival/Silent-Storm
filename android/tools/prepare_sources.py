@@ -36,7 +36,7 @@ DEFAULT_OUT = os.path.join(ANDROID_DIR, "gen")
 #  ADOImport's COM/ADO code; ADOImport is staged for its BasicDB.h header only.
 #  Main is staged (not built yet) because DBFormat includes two of its headers.
 MODULES = ["Misc", "FileIO", "Script", "MiscDll", "Image", "DBFormat",
-           "ADOFake", "ADOImport", "Main"]
+           "ADOFake", "ADOImport", "Main", "libpng"]
 
 COPY_EXTENSIONS = {".cpp", ".c", ".h", ".hpp", ".inl", ".txt"}
 
@@ -1252,6 +1252,29 @@ extern "C" int a5_serializer_unknown_types( int *pnLastTypeID )
 	return g_nUnknownTypeCount;
 }
 extern "C" void a5_serializer_reset_unknown_types() { g_nUnknownTypeCount = 0; g_nLastUnknownType = 0; }""",
+    ),
+]
+
+RULES += [
+    (
+        "libpng/png.h",
+        "libpng 1.0.9 includes the vendored zlib by a relative Windows path; the "
+        "Android build uses the NDK's zlib (same API, and libpng only needs the "
+        "public one).",
+        # (the include-path pass has already turned the backslashes into '/')
+        '#include "../zlib/zlib.h"',
+        '#include <zlib.h>  // [android] NDK zlib instead of the vendored copy',
+    ),
+]
+
+RULES += [
+    (
+        "libpng/pngconf.h",
+        "libpng 1.0.9's `MACOS` branch means classic Mac OS with CodeWarrior's "
+        "<fp.h>.  A modern macOS host defines MACOS through the compat layer's "
+        "toolchain and has <math.h> like everyone else; take that branch.",
+        "#  if defined(MACOS)\n     /* We need to check that <math.h> hasn't already been included earlier",
+        "#  if defined(MACOS) && !defined(__APPLE__)  /* [android] classic Mac OS only */\n     /* We need to check that <math.h> hasn't already been included earlier",
     ),
 ]
 

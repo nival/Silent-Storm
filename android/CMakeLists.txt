@@ -131,6 +131,39 @@ target_link_libraries(a5miscdll PUBLIC a5fileio)
 a5_engine_module(a5script ${SCRIPT_LUA_SOURCES} ${ENGINE_GEN}/Script/Script.cpp)
 target_link_libraries(a5script PUBLIC a5fileio a5miscdll)
 
+#  libpng 1.0.9, as vendored in the tree.  Its two x86 assembler back ends
+#  (pngvcrd.c: MSVC MMX, pnggccrd.c: GCC MMX) are left out; the C paths are
+#  complete on their own.  zlib comes from the NDK / host system.
+find_package(ZLIB REQUIRED)
+add_library(a5png STATIC
+    ${ENGINE_GEN}/libpng/png.c      ${ENGINE_GEN}/libpng/pngerror.c ${ENGINE_GEN}/libpng/pngget.c
+    ${ENGINE_GEN}/libpng/pngmem.c   ${ENGINE_GEN}/libpng/pngpread.c ${ENGINE_GEN}/libpng/pngread.c
+    ${ENGINE_GEN}/libpng/pngrio.c   ${ENGINE_GEN}/libpng/pngrtran.c ${ENGINE_GEN}/libpng/pngrutil.c
+    ${ENGINE_GEN}/libpng/pngset.c   ${ENGINE_GEN}/libpng/pngtrans.c ${ENGINE_GEN}/libpng/pngwio.c
+    ${ENGINE_GEN}/libpng/pngwrite.c ${ENGINE_GEN}/libpng/pngwtran.c ${ENGINE_GEN}/libpng/pngwutil.c
+)
+target_include_directories(a5png PUBLIC ${ENGINE_GEN}/libpng)
+target_compile_definitions(a5png PUBLIC PNG_NO_ASSEMBLER_CODE)
+#  Nival annotated libpng's exports with the engine's externA5 (dllimport marker),
+#  so the C build needs the same compat prologue as the C++ modules.
+target_compile_options(a5png PRIVATE
+    -include ${COMPAT_DIR}/include/a5_msvc_compat.h
+    -Wno-everything)   # 2001-era C; warnings are noise
+target_link_libraries(a5png PUBLIC ZLIB::ZLIB)
+
+#  Image -- BMP/TGA/PNG loading and the MMP mipmapped-texture container.
+#  ImagePack.cpp (the DXT *encoder*, on a proprietary s3tc.h) is a tools-side
+#  dependency of TexConv and is not part of the runtime.
+a5_engine_module(a5image
+    ${ENGINE_GEN}/Image/Image.cpp
+    ${ENGINE_GEN}/Image/ImageBMP.cpp
+    ${ENGINE_GEN}/Image/ImageMMP.cpp
+    ${ENGINE_GEN}/Image/ImageOperation.cpp
+    ${ENGINE_GEN}/Image/ImagePNG.cpp
+    ${ENGINE_GEN}/Image/ImageTGA.cpp
+)
+target_link_libraries(a5image PUBLIC a5fileio a5png)
+
 #  DBFormat -- the schema of every record in game.db.  ADOFake supplies the
 #  database-source stub the shipping game links in place of ADOImport's COM/ADO
 #  content-import path.
@@ -151,6 +184,7 @@ if(NOT ANDROID)
         ${PLATFORM_DIR}/host_main.cpp
         ${PLATFORM_DIR}/boot_harness.cpp
         ${PLATFORM_DIR}/data_mount.cpp
+        ${PLATFORM_DIR}/dxt_decode.cpp
     )
     target_include_directories(silentstorm_hosttest PRIVATE
         ${COMPAT_DIR}/include
@@ -158,7 +192,7 @@ if(NOT ANDROID)
         ${PLATFORM_DIR}
     )
     target_compile_options(silentstorm_hosttest PRIVATE ${ENGINE_COMPILE_OPTIONS})
-    target_link_libraries(silentstorm_hosttest a5script a5dbformat a5miscdll a5fileio a5misc a5compat)
+    target_link_libraries(silentstorm_hosttest a5script a5dbformat a5image a5miscdll a5fileio a5misc a5compat)
     return()
 endif()
 
@@ -174,6 +208,7 @@ add_library(silentstorm SHARED
     ${PLATFORM_DIR}/gles_present.cpp
     ${PLATFORM_DIR}/boot_harness.cpp
     ${PLATFORM_DIR}/data_mount.cpp
+    ${PLATFORM_DIR}/dxt_decode.cpp
     ${PLATFORM_DIR}/text_font.cpp
 )
 target_include_directories(silentstorm PRIVATE
@@ -184,7 +219,7 @@ target_include_directories(silentstorm PRIVATE
 target_compile_options(silentstorm PRIVATE ${ENGINE_COMPILE_OPTIONS})
 target_link_libraries(silentstorm
     native_app_glue
-    a5script a5dbformat a5miscdll a5fileio a5misc a5compat
+    a5script a5dbformat a5image a5miscdll a5fileio a5misc a5compat
     android log EGL GLESv2
 )
 

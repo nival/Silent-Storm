@@ -57,6 +57,17 @@ else
             "$ADB" push "$SOURCE/$d/." "$TARGET/$d" >/dev/null
         fi
     done
+    # A few textures, so the MMP/DXT check has something to decode.
+    if [ -d "$SOURCE/Textures" ]; then
+        "$ADB" shell mkdir -p "$TARGET/Textures"
+        for id in 1 2 4 6 10 13; do
+            [ -f "$SOURCE/Textures/$id" ] && "$ADB" push "$SOURCE/Textures/$id" "$TARGET/Textures/" >/dev/null
+        done
+    fi
+    # game.db: the repository's Data/ copy is the source-format one; see PORTING.md.
+    if [ -f "$SOURCE/../Data/game.db" ]; then
+        "$ADB" push "$SOURCE/../Data/game.db" "$TARGET/game.db" >/dev/null
+    fi
 fi
 
 # adb creates directories as the `shell` user with mode 0770, which the app's

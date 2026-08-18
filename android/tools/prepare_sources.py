@@ -393,6 +393,47 @@ def rewrite_member_function_arguments(text):
 
 
 # ---------------------------------------------------------------------------
+#  Mechanical pass: address of a temporary
+# ---------------------------------------------------------------------------
+#  `f( &SRand() )`, `f( &vector<SLuaParams>() )` -- MSVC 7 materialised the
+#  temporary and handed out its address for the duration of the call; ISO C++
+#  forbids taking the address of a prvalue.  Rewrite: hoist the temporary into
+#  a named local declared on the line before the statement (same lifetime as
+#  far as the call is concerned: it lives to the end of the enclosing block,
+#  which is at least the full expression), and pass its address.
+#
+#  Only handled where the statement is a whole line, which is every site in
+#  the tree; anything else is left for a targeted rule.
+#  Only the value types the engine actually spells this way.  A general
+#  `&Name()` pattern would also match `T& Get()` declarations and calls of
+#  functions returning references, which are legal and must stay untouched.
+ADDRESS_OF_TEMP_RE = re.compile(r"&\s*(SRand|vector<SLuaParams>|vector<int>|SRandomSeed)\(\)")
+
+
+def rewrite_address_of_temporaries(text):
+    lines = text.split("\n")
+    out = []
+    counter = 0
+    for line in lines:
+        matches = list(ADDRESS_OF_TEMP_RE.finditer(line))
+        if not matches or line.lstrip().startswith(("//", "*", "/*")):
+            out.append(line)
+            continue
+        indent = line[:len(line) - len(line.lstrip())]
+        hoisted = []
+        for m in matches:
+            counter += 1
+            name = "a5Temp%d" % counter
+            type_name = m.group(1)
+            hoisted.append("%s%s %s;   // [android] was &%s() -- address of a temporary" % (indent, type_name, name, type_name))
+            line = line.replace(m.group(0), "&" + name, 1)
+            stats["addr-of-temp"] += 1
+        out.extend(hoisted)
+        out.append(line)
+    return "\n".join(out)
+
+
+# ---------------------------------------------------------------------------
 #  Rule 2..n (targeted): MSVC-only constructs and x86 assembly
 # ---------------------------------------------------------------------------
 #  Each entry is (relative path, description, old text, new text).  Exact string
@@ -1628,6 +1669,413 @@ RULES += [
     ),
 ]
 
+# ---------------------------------------------------------------------------
+#  Rule set 9: MMX skinning in Main/GCombiner.cpp
+# ---------------------------------------------------------------------------
+#  Three routines rotate a packed 8-bit unit vector (normal / tangent) by one,
+#  two or three fixed-point 3x3 matrices, blend, renormalise through a lookup
+#  table, and repack.  They are the *only* path for skinned normals, and they
+#  are MMX inline assembly.  Below is the same fixed-point arithmetic written
+#  out in C++ -- same 16-bit saturating adds, same shifts, same normalisation
+#  table -- so the output is bit-comparable to the original, not merely close.
+#  Nival's own commented-out check in TransformVertexT() shows the reference:
+#  MMX result within 0.02 of a float rotate+normalise.
+#
+#  Layout reminder (GPixelFormat.h):
+#    SCompactVector  { unsigned char z, y, x, w; }  -- w is 0, components 0..255
+#    SMMXWord        { short nZ, nY, nX, nW; }
+#    SCompactTransformer { SMMXWord a, b, c; }      -- rows in the packing order
+#    fixups.normalFixup  = 0x8000 per lane (unpack bias), shiftedFixup = 0x8080
+
+MMX_SCALAR_IMPL = """
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// [android] Portable fixed-point equivalents of the MMX routines below.  See the
+// rule in tools/prepare_sources.py for the derivation.  Lanes are (z, y, x, w).
+////////////////////////////////////////////////////////////////////////////////////////////////////
+namespace
+{
+	inline short SatAdd16( int a, int b )
+	{
+		int r = a + b;
+		return (short)( r > 32767 ? 32767 : ( r < -32768 ? -32768 : r ) );
+	}
+	inline short MulHi16( int a, int b ) { return (short)( ( a * b ) >> 16 ); }   // pmulhw
+
+	// pmulhw of a lane vector by a transformer row, all four lanes.
+	inline void MulHiRow( short *pOut, const short *pIn, const NGfx::SMMXWord &row )
+	{
+		pOut[0] = MulHi16( pIn[0], row.nZ );
+		pOut[1] = MulHi16( pIn[1], row.nY );
+		pOut[2] = MulHi16( pIn[2], row.nX );
+		pOut[3] = MulHi16( pIn[3], row.nW );
+	}
+
+	// One matrix: mm1 = v*a + rot16(v)*b + rot32(v)*c, where rot16 rotates the
+	// lanes (z y x w) -> (x z y ?) and rot32 -> (y x z ?), exactly as the
+	// psllq/psrlq/paddw sequences did.  Only lanes 0..2 matter afterwards.
+	inline void RotateLanes( const short *v, short *r16, short *r32 )
+	{
+		// psllq 16 then paddw psrlq 32: lane0 <- v[2] (x), lane1 <- v[0]... derived
+		// from the 64-bit shifts on (z,y,x,w) little-endian lanes:
+		//   psllq mm2,16 : (0, z, y, x)     psrlq mm3,32 : (x, w, 0, 0)  sum: (x, z+w, y, x)
+		//   psllq mm3,32 : (0, 0, z, y)     psrlq mm4,16 : (y, x, w, 0)  sum: (y, x, z+w, y)
+		// w is always 0 for the input vector, so:
+		r16[0] = v[2]; r16[1] = v[0]; r16[2] = v[1]; r16[3] = v[2];
+		r32[0] = v[1]; r32[1] = v[2]; r32[2] = v[0]; r32[3] = v[1];
+	}
+
+	inline void ApplyTransformer( short *pAcc, const short *v, const NGfx::SCompactTransformer &t )
+	{
+		short r16[4], r32[4], m1[4], m2[4], m3[4];
+		RotateLanes( v, r16, r32 );
+		MulHiRow( m1, v,   t.a );
+		MulHiRow( m2, r16, t.b );
+		MulHiRow( m3, r32, t.c );
+		for ( int i = 0; i < 4; ++i )
+			pAcc[i] = SatAdd16( SatAdd16( m1[i], m2[i] ), m3[i] );
+	}
+
+	inline void Unpack( short *v, const NGfx::SCompactVector *pSrc, const SMMXFixups *pFixups )
+	{
+		// punpcklbw mm0, mm7 puts each byte in the high half of a 16-bit lane;
+		// psubw the 0x8000 fixup recentres it around zero.
+		v[0] = (short)( ( pSrc->z << 8 ) - (unsigned short)pFixups->normalFixup.nZ );
+		v[1] = (short)( ( pSrc->y << 8 ) - (unsigned short)pFixups->normalFixup.nY );
+		v[2] = (short)( ( pSrc->x << 8 ) - (unsigned short)pFixups->normalFixup.nX );
+		v[3] = (short)( ( pSrc->w << 8 ) - (unsigned short)pFixups->normalFixup.nW );
+	}
+
+	inline void NormaliseAndPack( NGfx::SCompactVector *pRes, short *acc, const SMMXFixups *pFixups, int nPreShift )
+	{
+		// psllw acc, nPreShift  (5 for one matrix, 3 after the blend paths)
+		for ( int i = 0; i < 4; ++i ) acc[i] = (short)( acc[i] << nPreShift );
+		// pmaddwd + fold: sum of squares of the four lanes (w lane is 0)
+		unsigned int nSq = (unsigned int)( acc[0]*acc[0] + acc[1]*acc[1] ) + (unsigned int)( acc[2]*acc[2] + acc[3]*acc[3] );
+		unsigned int nIdx = nSq >> 18;
+		if ( nIdx >= (unsigned int)ARRAY_SIZE( nNormalizeTable ) ) nIdx = ARRAY_SIZE( nNormalizeTable ) - 1;
+		const short nScale = nNormalizeTable[ nIdx ];
+		for ( int i = 0; i < 4; ++i )
+			acc[i] = (short)( MulHi16( acc[i], nScale ) << 5 );
+		// paddw shiftedFixup (0x8080: recentre and round), psrlw 8, packuswb
+		unsigned char out[4];
+		for ( int i = 0; i < 4; ++i )
+		{
+			const short *pFix = &pFixups->shiftedFixup.nZ;
+			int t = ( (unsigned short)acc[i] + (unsigned short)pFix[i] ) & 0xffff;
+			t >>= 8;
+			out[i] = (unsigned char)( t > 255 ? 255 : t );
+		}
+		pRes->z = out[0]; pRes->y = out[1]; pRes->x = out[2]; pRes->w = out[3];
+	}
+
+	inline void BlendWeight( short *acc, int nWeight )
+	{
+		// psllw 4, pmulhw by mmxWeights[w] (= w << 6 in every lane)
+		const int nW = mmxWeights[ nWeight & 0xff ].nX;
+		for ( int i = 0; i < 4; ++i )
+			acc[i] = MulHi16( (short)( acc[i] << 4 ), nW );
+	}
+}
+static void MMXTransformVector( NGfx::SCompactVector *pRes, const NGfx::SCompactVector *pSrc, const SMMXFixups *pFixups,
+	const NGfx::SCompactTransformer *pTrans )
+{
+	ASSERT( pSrc->w == 0 );
+	short v[4], acc[4];
+	Unpack( v, pSrc, pFixups );
+	ApplyTransformer( acc, v, *pTrans );
+	NormaliseAndPack( pRes, acc, pFixups, 5 );
+}
+////////////////////////////////////////////////////////////////////////////////////////////////////
+static void MMXTransformVector2( NGfx::SCompactVector *pRes, const NGfx::SCompactVector *pSrc, const SMMXFixups *pFixups,
+	const NGfx::SCompactTransformer *pTrans, char w1,
+	const NGfx::SCompactTransformer *pTrans2, char w2 )
+{
+	ASSERT( pSrc->w == 0 );
+	short v[4], a1[4], a2[4];
+	Unpack( v, pSrc, pFixups );
+	ApplyTransformer( a1, v, *pTrans );
+	ApplyTransformer( a2, v, *pTrans2 );
+	BlendWeight( a1, (unsigned char)w1 );
+	BlendWeight( a2, (unsigned char)w2 );
+	for ( int i = 0; i < 4; ++i ) a1[i] = SatAdd16( a1[i], a2[i] );
+	NormaliseAndPack( pRes, a1, pFixups, 3 );
+}
+////////////////////////////////////////////////////////////////////////////////////////////////////
+static void MMXTransformVector3( NGfx::SCompactVector *pRes, const NGfx::SCompactVector *pSrc, const SMMXFixups *pFixups,
+	const NGfx::SCompactTransformer *pTrans, char w1,
+	const NGfx::SCompactTransformer *pTrans2, char w2,
+	const NGfx::SCompactTransformer *pTrans3, char w3 )
+{
+	ASSERT( pSrc->w == 0 );
+	short v[4], a1[4], a2[4], a3[4];
+	Unpack( v, pSrc, pFixups );
+	ApplyTransformer( a1, v, *pTrans );
+	ApplyTransformer( a2, v, *pTrans2 );
+	ApplyTransformer( a3, v, *pTrans3 );
+	BlendWeight( a1, (unsigned char)w1 );
+	BlendWeight( a2, (unsigned char)w2 );
+	BlendWeight( a3, (unsigned char)w3 );
+	for ( int i = 0; i < 4; ++i ) a1[i] = SatAdd16( SatAdd16( a1[i], a2[i] ), a3[i] );
+	NormaliseAndPack( pRes, a1, pFixups, 3 );
+}
+"""
+
+RULES += [
+    (
+        "Main/GCombiner.cpp",
+        "Replace the three MMX inline-assembly skinning routines with the same "
+        "fixed-point arithmetic in portable C++.  See MMX_SCALAR_IMPL.",
+        re.compile(
+            r"// disable no emms warning, emms is placed after all mmx calcs\n"
+            r"#pragma warning\( disable : 4799 \)\n"
+            r"static void MMXTransformVector\(.*?"
+            r"#pragma warning\( default : 4799 \)\n",
+            re.DOTALL),
+        MMX_SCALAR_IMPL.lstrip("\n"),
+    ),
+    (
+        "Main/GCombiner.cpp",
+        "`_asm emms;` clears the x87/MMX state after MMX use; there is none now.",
+        re.compile(r"[ \t]*_asm emms;\n"),
+        "",
+    ),
+]
+
+RULES += [
+    (
+        "Misc/Basic2.h",
+        "CPtr/CObj/CMObj converting constructors.  MSVC built `CPtr<Base> p = "
+        "objOfDerived;` by chaining operator T*() and the pointer constructor -- "
+        "two user-defined conversions, which ISO C++ does not allow implicitly.  "
+        "Accepting any other smart pointer whose pointee converts to T* restores "
+        "that in one step (Main relies on it in ~15 places).",
+        "\tinline TPtrName( const TPtrName &a ): CBase( a ) {}                                       \\",
+        "\tinline TPtrName( const TPtrName &a ): CBase( a ) {}                                       \\\n"
+        "\t/* [android] converting ctor/assignment from any other CPtrBase, see rule */               \\\n"
+        "\ttemplate<class TOther, class TOtherRef>                                                   \\\n"
+        "\tinline TPtrName( const CPtrBase<TOther, TOtherRef> &a ): CBase( a.GetPtr() ) {}          \\\n"
+        "\ttemplate<class TOther, class TOtherRef>                                                   \\\n"
+        "\tinline TPtrName& operator=( const CPtrBase<TOther, TOtherRef> &a ) { Set( a.GetPtr() ); return *this; } \\",
+    ),
+    (
+        "ADOImport/BasicDB.h",
+        "CDBPtr: same converting constructor (wDebris.cpp assigns a CPtr<CTEffect> "
+        "to a CDBPtr<CTEffect>).",
+        "\tCDBPtr( T *_ptr ): CBase( _ptr ) {}",
+        "\tCDBPtr( T *_ptr ): CBase( _ptr ) {}\n"
+        "\t// [android] converting ctor from any other smart pointer, see Basic2.h rule\n"
+        "\ttemplate<class TOther, class TOtherRef>\n"
+        "\tCDBPtr( const CPtrBase<TOther, TOtherRef> &a ): CBase( a.GetPtr() ) {}\n"
+        "\ttemplate<class TOther, class TOtherRef>\n"
+        "\tCDBPtr& operator=( const CPtrBase<TOther, TOtherRef> &a ) { Set( a.GetPtr() ); return *this; }",
+    ),
+]
+
+# ---------------------------------------------------------------------------
+#  Rule set 10: one-off MSVC 7 leniencies in Main
+# ---------------------------------------------------------------------------
+RULES += [
+    (
+        "Main/RectPacker.cpp",
+        "SRectOrder::operator() has no return type (implicit int) and is "
+        "non-const; ISO needs `bool` and std::sort needs a const call operator.",
+        """	SRectOrder( const vector<SRect> &_s ) : s(_s) {}
+	operator()( int a, int b )
+	{""",
+        """	SRectOrder( const vector<SRect> &_s ) : s(_s) {}
+	bool operator()( int a, int b ) const   // [android] implicit-int return, const for std::sort
+	{""",
+    ),
+    (
+        "Main/iMissionMovieUI.cpp",
+        "`return false;` from a function returning a pointer -- MSVC converted the "
+        "bool to a null pointer; ISO C++ does not.",
+        re.compile(r"(if \( CDynamicCast<NWorld::CUICmd(?:Turn|Unit)> pTurn = pCmd \)\n\t\t)return false;"),
+        r"\1return 0;   // [android] was `return false;` from a pointer-returning function",
+    ),
+    (
+        "Main/iCommonUI.cpp",
+        "String literals are const; a `WCHAR*` member cannot bind to u\"...\" "
+        "under ISO C++ (MSVC allowed the deprecated conversion).",
+        """			int nStringID;
+			WCHAR* pszID;
+		};
+		SShootMode pShotModeNames[NDb::SM_MAXVALUE] =""",
+        """			int nStringID;
+			const WCHAR* pszID;   // [android] literals are const
+		};
+		SShootMode pShotModeNames[NDb::SM_MAXVALUE] =""",
+    ),
+    (
+        "Main/GTerrainTexture.cpp",
+        "GetGenericBuffer takes its colour by non-const reference but is called "
+        "with temporaries; const& is what the callers mean.",
+        "static NGfx::CTexture* GetGenericBuffer( CObj<NGfx::CTexture> *pBuf, NGfx::SPixel8888 &color )",
+        "static NGfx::CTexture* GetGenericBuffer( CObj<NGfx::CTexture> *pBuf, const NGfx::SPixel8888 &color )  // [android] const&",
+    ),
+    (
+        "Main/wMain.cpp",
+        "GetDeployWithNumber is a file-static helper that names CWorld's private "
+        "nested SWorldDeploySpot; MSVC 7 did not check access on nested types "
+        "used in a parameter list.  Make the helper a friend via a forward "
+        "declaration is intrusive; the minimal faithful fix is to make the "
+        "nested struct public, which changes no behaviour.",
+        None, None,   # placeholder replaced below
+    ),
+]
+# drop the placeholder (kept the list readable); real wMain rule follows
+RULES.pop()
+
+#  MSVC 7 did not enforce access control on *nested types* named from outside
+#  their class (a file-static helper taking vector<CWorld::SWorldDeploySpot>,
+#  a derived class using CPathPlaceTable::SMove...).  ISO C++ does.  Making the
+#  nested type public changes nothing at run time -- access control is a
+#  compile-time property -- and is the smallest faithful fix.
+RULES += [
+    (
+        "Main/wMain.h",
+        "CWorld::SWorldDeploySpot is used by a file-static helper in wMain.cpp.",
+        """class CWorld: public IWorld, public CTBSWorld<CUnitServer, CPlayer, CCommander>, public CDebrisController
+{
+	struct SWorldDeploySpot""",
+        """class CWorld: public IWorld, public CTBSWorld<CUnitServer, CPlayer, CCommander>, public CDebrisController
+{
+public:   // [android] nested type named from a file-static helper (was private)
+	struct SWorldDeploySpot""",
+    ),
+    (
+        "Main/aiPathTable.h",
+        "CPathPlaceTable::SMove and ::CMovesHash are named by CMultiMovesTable "
+        "and by aiPath.cpp.",
+        """class CPathPlaceTable
+{
+	typedef SMoveInfo<SPathPlace, WORD> SMove;
+	typedef hash_map<SPathPlace, SMove, SPathPlaceHash> CMovesHash;""",
+        """class CPathPlaceTable
+{
+public:   // [android] nested typedefs named from other classes (were private)
+	typedef SMoveInfo<SPathPlace, WORD> SMove;
+	typedef hash_map<SPathPlace, SMove, SPathPlaceHash> CMovesHash;
+private:""",
+    ),
+    (
+        "Main/GAnimParticles.h",
+        "CATrailPath::STrailPoint is named by wBullet.cpp.",
+        """class CATrailPath: public CAnimator
+{
+	OBJECT_BASIC_METHODS(CATrailPath);
+private:
+	struct STrailPoint""",
+        """class CATrailPath: public CAnimator
+{
+	OBJECT_BASIC_METHODS(CATrailPath);
+public:   // [android] nested type named from wBullet.cpp (was private)
+	struct STrailPoint""",
+    ),
+    (
+        "Main/GAnimParticles.h",
+        "...and restore private for the members that follow it.",
+        """	ZDATA_(CAnimator)
+	int nTrailCount;
+	STime sCast;
+	vector<STrailPoint> trailpointsSet;""",
+        """private:  // [android] see STrailPoint above
+	ZDATA_(CAnimator)
+	int nTrailCount;
+	STime sCast;
+	vector<STrailPoint> trailpointsSet;""",
+    ),
+    (
+        "Main/aiColourer.h",
+        "`friend class CLayerColorConstraints;` inside CColouredWaysCalcer does not "
+        "introduce the name for later ordinary lookup under ISO C++ (it did under "
+        "MSVC 7), so the CalcBestWays parameter that names it needs a forward "
+        "declaration in the namespace.",
+        """namespace NAI
+{
+enum ESpecialColor
+{
+	EC_LADDER_COLOR = 32000,
+};""",
+        """namespace NAI
+{
+class CLayerColorConstraints;   // [android] friend-declared below; ISO needs a real declaration
+enum ESpecialColor
+{
+	EC_LADDER_COLOR = 32000,
+};""",
+    ),
+]
+
+#  Non-const reference parameters bound to temporaries.  MSVC 7 accepted these
+#  (a well-known extension); ISO C++ does not.  Every one of these functions
+#  only reads the parameter, so `const&` is what they meant.
+RULES += [
+    (
+        "Main/wAnimation.h",
+        "StandStill takes its position by non-const reference but is called with "
+        "the temporary GetCPNoHeight() returns; it never writes it.",
+        "\tvoid StandStill( CVec2 &pos, float fAngle, bool bNeedStrafe = false );",
+        "\tvoid StandStill( const CVec2 &pos, float fAngle, bool bNeedStrafe = false );  // [android] const&",
+    ),
+    (
+        "Main/wAnimation.cpp",
+        "Definition of the above.",
+        "void CUnitAnimator::StandStill( CVec2 &pos, float fAngle, bool bNeedStrafe )",
+        "void CUnitAnimator::StandStill( const CVec2 &pos, float fAngle, bool bNeedStrafe )  // [android] const&",
+    ),
+    (
+        "Main/aiMovesCalcer.h",
+        "CreateGrid2GridCandidates: srcOrigin/dstOrigin are read-only, called with "
+        "temporaries.",
+        re.compile(r"(void CreateGrid2GridCandidates\( IAIMap \*pMap, \n[^\n]*?)CTPoint<int> &srcOrigin,\n([^\n]*?)CTPoint<int> &dstOrigin,"),
+        r"\1const CTPoint<int> &srcOrigin,\n\2const CTPoint<int> &dstOrigin,",
+    ),
+    (
+        "Main/aiMovesCalcer.cpp",
+        "Definition of the above.",
+        re.compile(r"(void CMovesCalcer::CreateGrid2GridCandidates\( IAIMap \*pMap, \n[^\n]*?)CTPoint<int> &srcOrigin,\n([^\n]*?)CTPoint<int> &dstOrigin,"),
+        r"\1const CTPoint<int> &srcOrigin,\n\2const CTPoint<int> &dstOrigin,",
+    ),
+    (
+        "Main/scFlowChart.cpp",
+        "GetBestState is passed `CompareSize`, a member function, without the "
+        "&Class:: that a pointer-to-member requires (the member-arg pass only "
+        "handles the `(this, Method)` shape).",
+        re.compile(r"GetBestState\( finalStates, CompareSize \)"),
+        "GetBestState( finalStates, &CScenarioFlowChartPathFinder::CompareSize )",
+    ),
+    (
+        "Main/wBuilding.cpp",
+        "`extern FixSmallPieceID(...)` -- implicit int return type.",
+        "\textern FixSmallPieceID( const NAI::CGeometryInfo::CPieceMap &pieces, int nPieceID );",
+        "\textern int FixSmallPieceID( const NAI::CGeometryInfo::CPieceMap &pieces, int nPieceID );  // [android] implicit int",
+    ),
+    (
+        "Main/iActionDecorator.h",
+        "CActionDecorator<Type> derives from its parameter and calls the window "
+        "methods Type provides; name them for two-phase lookup.",
+        """template<class Type>
+class CActionDecorator: public Type
+{
+private:""",
+        """template<class Type>
+class CActionDecorator: public Type
+{
+protected:   // [android] dependent-base members (Type is the parameter)
+	using Type::GetStyle;
+	using Type::GetInterface;
+private:""",
+    ),
+]
+
+#  Address of a temporary passed to a pointer parameter (`&SRand()`,
+#  `&vector<SLuaParams>()`).  MSVC 7 materialised the temporary; ISO C++
+#  forbids taking its address.  A named local with the same lifetime (the full
+#  expression) is the equivalent.
+RULES += [
+]
+
 
 def apply_rules(text, rel_path, applied, unmatched):
     """Apply every rule whose file pattern matches.
@@ -1666,6 +2114,33 @@ def apply_rules(text, rel_path, applied, unmatched):
 # ---------------------------------------------------------------------------
 #  Driver
 # ---------------------------------------------------------------------------
+def vcproj_source_list(vcproj_path):
+    """The .cpp files a Visual Studio 2003 project actually compiles.
+
+    The Main/ directory holds a couple of sources that were dropped from the
+    build (Interface.cpp, iPopupMenu.cpp reference types that no longer
+    exist).  Main.vcproj is the authority on what MSVC built, so the Android
+    build takes its list from there rather than globbing the directory."""
+    with open(vcproj_path, "rb") as f:
+        text = f.read().decode("cp1251", "replace")
+    names = re.findall(r'RelativePath="(?:\.\\)?([^"\\]+\.(?:cpp|CPP|c))"', text)
+    return sorted(set(names))
+
+
+def write_source_list(src_root, out_root, module):
+    vcproj = os.path.join(src_root, module, module + ".vcproj")
+    if not os.path.isfile(vcproj):
+        return
+    names = vcproj_source_list(vcproj)
+    with open(os.path.join(out_root, module, "SOURCES.cmake"), "w") as f:
+        f.write("# Generated by tools/prepare_sources.py from %s.vcproj -- the files MSVC built.\n" % module)
+        f.write("set(%s_VCPROJ_SOURCES\n" % module.upper())
+        for name in names:
+            f.write("    ${ENGINE_GEN}/%s/%s\n" % (module, name))
+        f.write(")\n")
+    stats["vcproj-lists"] += 1
+
+
 def prepare(src_root, out_root, report_only=False):
     if not os.path.isdir(src_root):
         sys.exit("source tree not found: %s" % src_root)
@@ -1725,12 +2200,16 @@ def prepare(src_root, out_root, report_only=False):
             text = rewrite_condition_declarations(text)
             text = rewrite_single_arg_insert(text)
             text = rewrite_member_function_arguments(text)
+            text = rewrite_address_of_temporaries(text)
             text = apply_rules(text, rel_path, applied, unmatched)
 
             if not report_only:
                 with open(os.path.join(module_out, name), "w", encoding="utf-8") as f:
                     f.write(text)
             stats["files"] += 1
+
+        if not report_only:
+            write_source_list(src_root, out_root, module)
 
     return applied, unmatched, warnings
 
@@ -1754,6 +2233,7 @@ def main():
     print("  if-condition declarations: %d rewritten to '= expr'" % stats["condition-decl"])
     print("  insert(end()) no-value  : %d rewritten" % stats["insert-end"])
     print("  member-fn args          : %d qualified as &Class::Method" % stats["member-arg"])
+    print("  address-of-temporary    : %d hoisted into locals" % stats["addr-of-temp"])
     print("  targeted source rules   : %d applications" % len(applied))
     for rel_path, description in applied:
         print("    %-28s %s" % (rel_path, description))

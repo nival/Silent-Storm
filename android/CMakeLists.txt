@@ -78,8 +78,13 @@ add_library(a5compat STATIC
     ${COMPAT_DIR}/src/win32compat.cpp
     ${COMPAT_DIR}/src/msvc_crt.cpp
     ${COMPAT_DIR}/src/wide_char.cpp
+    ${COMPAT_DIR}/src/lifestudio_stub.cpp
 )
-target_include_directories(a5compat PUBLIC ${COMPAT_DIR}/include)
+#  thirdparty-stubs/ stands in for SDKs that are not in the source release
+#  (LifeStudio:HEAD; FMOD and Bink will follow the same pattern).
+target_include_directories(a5compat PUBLIC
+    ${COMPAT_DIR}/include
+    ${COMPAT_DIR}/include/thirdparty-stubs)
 target_compile_definitions(a5compat PUBLIC ${ENGINE_DEFINITIONS})
 if(ANDROID)
     target_link_libraries(a5compat PUBLIC log)
@@ -183,8 +188,10 @@ target_link_libraries(a5dbformat PUBLIC a5fileio a5miscdll)
 # ---------------------------------------------------------------------------
 option(A5_BUILD_MAIN "Compile the Main module (work in progress)" OFF)
 if(A5_BUILD_MAIN)
-    file(GLOB MAIN_SOURCES ${ENGINE_GEN}/Main/*.cpp ${ENGINE_GEN}/Main/*.CPP)
-    add_library(a5main OBJECT ${MAIN_SOURCES})
+    #  The file list comes from Main.vcproj (via prepare_sources.py), not a
+    #  glob: the directory holds two sources MSVC never built.
+    include(${ENGINE_GEN}/Main/SOURCES.cmake)
+    add_library(a5main OBJECT ${MAIN_VCPROJ_SOURCES})
     #  ${ENGINE_GEN}/Main is deliberately NOT an include directory: it holds a
     #  Time.h that would shadow the system <time.h> (a case-insensitive host, or
     #  the -I search order, both find it first).  Engine sources include their

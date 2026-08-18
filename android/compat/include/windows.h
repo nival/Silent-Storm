@@ -373,6 +373,28 @@ UINT  GetPrivateProfileIntA( LPCSTR sect, LPCSTR key, INT def, LPCSTR file );
 }  /* extern "C" */
 #endif
 
+/* ----- Virtual-key codes --------------------------------------------------
+ *  The UI layer compares against these for text-field navigation.  Values are
+ *  the Win32 ones; the Android input layer translates key events to them. */
+#define VK_BACK    0x08
+#define VK_TAB     0x09
+#define VK_RETURN  0x0D
+#define VK_SHIFT   0x10
+#define VK_CONTROL 0x11
+#define VK_ESCAPE  0x1B
+#define VK_SPACE   0x20
+#define VK_PRIOR   0x21
+#define VK_NEXT    0x22
+#define VK_END     0x23
+#define VK_HOME    0x24
+#define VK_LEFT    0x25
+#define VK_UP      0x26
+#define VK_RIGHT   0x27
+#define VK_DOWN    0x28
+#define VK_INSERT  0x2D
+#define VK_DELETE  0x2E
+#define VK_F1      0x70
+
 /* ----- ANSI/Unicode name mapping ------------------------------------------ */
 /* The engine is an ANSI (single byte) build, so the plain names map to *A.    */
 #define CreateFile              CreateFileA

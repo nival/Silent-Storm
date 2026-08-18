@@ -1206,3 +1206,46 @@ extern "C" UINT GetPrivateProfileIntA( LPCSTR pszSection, LPCSTR pszKey, INT nDe
         return (UINT)nDefault;
     return (UINT)atoi( szBuffer );
 }
+
+/* ------------------------------------------------------------------------- */
+/*  MSVC _findfirst / _findnext / _findclose  (declared in compat io.h)         */
+/* ------------------------------------------------------------------------- */
+#include "io.h"
+
+namespace {
+void FillFindData( struct _finddata_t *pOut, const WIN32_FIND_DATAA &in )
+{
+    pOut->attrib = 0;
+    if ( in.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ) pOut->attrib |= _A_SUBDIR;
+    if ( in.dwFileAttributes & FILE_ATTRIBUTE_READONLY )  pOut->attrib |= _A_RDONLY;
+    pOut->size = in.nFileSizeLow;
+    pOut->time_write = (time_t)( ( FileTimeToLongLong( &in.ftLastWriteTime ) - FILETIME_UNIX_EPOCH_DELTA ) / 10000000LL );
+    pOut->time_create = pOut->time_access = pOut->time_write;
+    strncpy( pOut->name, in.cFileName, sizeof( pOut->name ) - 1 );
+    pOut->name[ sizeof( pOut->name ) - 1 ] = 0;
+}
+}  // namespace
+
+extern "C" intptr_t _findfirst( const char *pszFileSpec, struct _finddata_t *pFileInfo )
+{
+    WIN32_FIND_DATAA data;
+    HANDLE h = FindFirstFileA( pszFileSpec, &data );
+    if ( h == INVALID_HANDLE_VALUE )
+        return -1;
+    FillFindData( pFileInfo, data );
+    return (intptr_t)h;
+}
+
+extern "C" int _findnext( intptr_t hFile, struct _finddata_t *pFileInfo )
+{
+    WIN32_FIND_DATAA data;
+    if ( !FindNextFileA( (HANDLE)hFile, &data ) )
+        return -1;
+    FillFindData( pFileInfo, data );
+    return 0;
+}
+
+extern "C" int _findclose( intptr_t hFile )
+{
+    return FindClose( (HANDLE)hFile ) ? 0 : -1;
+}

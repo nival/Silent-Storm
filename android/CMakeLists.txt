@@ -44,6 +44,8 @@ set(ENGINE_COMPILE_OPTIONS
     -fms-extensions            # MSVC-isms clang can accept outright
     -fdelayed-template-parsing # MSVC parses template bodies at instantiation
     -fno-strict-aliasing       # FP_BITS() type-puns floats through DWORD*
+    -fno-operator-names        # MSVC never treated `or`/`and`/`not` as keywords;
+                               # the engine has variables named `or`
     -Wno-unknown-pragmas       # #pragma warning(disable:...)
     -Wno-invalid-token-paste
     -Wno-writable-strings
@@ -173,6 +175,26 @@ a5_engine_module(a5dbformat
     ${ENGINE_GEN}/ADOFake/BasicDBfake.cpp
 )
 target_link_libraries(a5dbformat PUBLIC a5fileio a5miscdll)
+
+# ---------------------------------------------------------------------------
+#  Main -- the engine + game (154k lines).  Survey target: compiles every file
+#  as an object library so errors can be counted; nothing links against it yet.
+#  Enable with -DA5_BUILD_MAIN=ON.
+# ---------------------------------------------------------------------------
+option(A5_BUILD_MAIN "Compile the Main module (work in progress)" OFF)
+if(A5_BUILD_MAIN)
+    file(GLOB MAIN_SOURCES ${ENGINE_GEN}/Main/*.cpp ${ENGINE_GEN}/Main/*.CPP)
+    add_library(a5main OBJECT ${MAIN_SOURCES})
+    #  ${ENGINE_GEN}/Main is deliberately NOT an include directory: it holds a
+    #  Time.h that would shadow the system <time.h> (a case-insensitive host, or
+    #  the -I search order, both find it first).  Engine sources include their
+    #  siblings as "Foo.h", which resolves relative to the including file and
+    #  needs no -I.
+    target_include_directories(a5main PUBLIC ${COMPAT_DIR}/include ${ENGINE_GEN})
+    target_compile_definitions(a5main PUBLIC ${ENGINE_DEFINITIONS})
+    target_compile_options(a5main PRIVATE ${ENGINE_COMPILE_OPTIONS} -ferror-limit=0)
+    target_link_libraries(a5main PUBLIC a5compat)
+endif()
 
 # ---------------------------------------------------------------------------
 #  The application

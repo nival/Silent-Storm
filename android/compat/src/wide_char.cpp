@@ -307,3 +307,21 @@ extern "C" int a5_u16_atoi( const char16_t *psz )
     NarrowAscii( psz, szNarrow, sizeof( szNarrow ) );
     return atoi( szNarrow );
 }
+
+extern "C" long a5_u16_atol( const char16_t *psz )
+{
+    char szNarrow[ 64 ];
+    NarrowAscii( psz, szNarrow, sizeof( szNarrow ) );
+    return atol( szNarrow );
+}
+
+extern "C" long a5_u16_strtol( const char16_t *psz, char16_t **ppEnd, int nRadix )
+{
+    char  szNarrow[ 64 ];
+    char *pNarrowEnd = 0;
+    NarrowAscii( psz, szNarrow, sizeof( szNarrow ) );
+    const long nResult = strtol( szNarrow, &pNarrowEnd, nRadix );
+    if ( ppEnd )
+        *ppEnd = const_cast< char16_t * >( psz ) + ( pNarrowEnd - szNarrow );
+    return nResult;
+}

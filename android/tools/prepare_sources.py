@@ -35,8 +35,11 @@ DEFAULT_OUT = os.path.join(ANDROID_DIR, "gen")
 #  ADOFake provides the database-source stub the shipping game links instead of
 #  ADOImport's COM/ADO code; ADOImport is staged for its BasicDB.h header only.
 #  Main is staged (not built yet) because DBFormat includes two of its headers.
+#  Input is staged for its headers: Input.h is a DirectInput-free interface that
+#  the Android touch layer will implement, and Bind.h/Bind.cpp (action mapping)
+#  are portable.  Input.cpp itself is DirectInput and is never built.
 MODULES = ["Misc", "FileIO", "Script", "MiscDll", "Image", "DBFormat",
-           "ADOFake", "ADOImport", "Main", "libpng"]
+           "ADOFake", "ADOImport", "Main", "libpng", "Input"]
 
 COPY_EXTENSIONS = {".cpp", ".c", ".h", ".hpp", ".inl", ".txt"}
 
@@ -144,8 +147,10 @@ def rewrite_wide_characters(text, rel_path, warnings):
 ENUM_FORWARD_RE = re.compile(r"^(\s*)enum\s+([A-Za-z_]\w*)\s*;", re.MULTILINE)
 # `enum Name` followed (possibly after a newline) by `{`, but not `: type` and
 # not `class`/`struct`.  Only names in FORWARD_DECLARED_ENUMS are rewritten.
+#  A definition is `enum Name` followed by `{`, possibly after a comment and/or a
+#  newline; `enum Name : type` and `enum class` are excluded by the lookahead.
 ENUM_DEFINITION_RE = re.compile(
-    r"^(\s*)enum\s+([A-Za-z_]\w*)(\s*)(?=\{|\n\s*\{)", re.MULTILINE)
+    r"^(\s*)enum\s+([A-Za-z_]\w*)(\s*)(?=(?://[^\n]*)?\n?\s*\{)", re.MULTILINE)
 
 
 def collect_forward_declared_enums(src_root, modules):
@@ -204,6 +209,24 @@ ITERATOR_DECL_RE = re.compile(
     r"hash_multimap|deque)\s*<((?:[^<>]|<(?:[^<>]|<[^<>]*>)*>)*)>\s*::\s*"
     r"(?:const_)?(?:reverse_)?iterator)\b(?=\s+[A-Za-z_])")
 
+#  The engine also names container types through typedefs made inside the class
+#  template (`typedef list< CObj<TPlayer> > TPlayerList;` then
+#  `TPlayerList::iterator i`).  Those typedefs are dependent too.  Collect the
+#  typedef names whose definition mentions a template parameter, and give their
+#  ::iterator uses `typename` as well.
+TYPEDEF_RE = re.compile(r"\btypedef\s+([^;{}]+?)\s+([A-Za-z_]\w*)\s*;")
+TYPEDEF_ITERATOR_RE = re.compile(
+    r"(?<![\w:.>])([A-Za-z_]\w*)\s*::\s*((?:const_)?(?:reverse_)?iterator)\b(?=\s+[A-Za-z_])")
+
+#  Inside a template body, `typename` is permitted before *any* qualified name
+#  (C++11 relaxed the dependent-only rule), so once we know we are inside one,
+#  every `Something<...>::iterator x` / `Name::iterator x` declaration can take
+#  it safely.  Names that resolve to something already complete just get a
+#  redundant keyword.  We still skip the obvious non-type spellings.
+ANY_ITERATOR_DECL_RE = re.compile(
+    r"(?<![\w:.>])((?:[A-Za-z_]\w*\s*::\s*)*[A-Za-z_]\w*(?:\s*<(?:[^<>]|<(?:[^<>]|<[^<>]*>)*>)*>)?)\s*::\s*"
+    r"((?:const_)?(?:reverse_)?iterator)\b(?=\s+[A-Za-z_])")
+
 
 def template_parameters(header_text):
     """Names declared in a template<...> parameter list."""
@@ -227,18 +250,31 @@ def rewrite_dependent_iterators(text):
     out = []
     pos = 0
     current_params = set()
+    dependent_typedefs = set()   # typedef names whose definition uses a template parameter
     events = sorted(
         [(m.start(), "tmpl", m) for m in TEMPLATE_HEADER_RE.finditer(text)] +
-        [(m.start(), "iter", m) for m in ITERATOR_DECL_RE.finditer(text)])
+        [(m.start(), "tdef", m) for m in TYPEDEF_RE.finditer(text)] +
+        [(m.start(), "aiter", m) for m in ANY_ITERATOR_DECL_RE.finditer(text)])
     for start, kind, m in events:
         if kind == "tmpl":
             current_params = template_parameters(m.group(1))
             continue
-        inner = m.group(2)
+        if kind == "tdef":
+            definition, name = m.group(1), m.group(2)
+            if current_params and any(re.search(r"\b%s\b" % re.escape(p), definition)
+                                      for p in current_params):
+                dependent_typedefs.add(name)
+            continue
+        if start < pos:
+            continue
         if not current_params:
             continue
-        if not any(re.search(r"\b%s\b" % re.escape(p), inner) for p in current_params):
-            continue
+        # A template header's own scope ends at the next blank-line-separated
+        # non-template declaration in practice; the engine keeps template
+        # bodies contiguous, so "since the last template<...>" is a fair
+        # approximation.  Guard against the one false positive that matters:
+        # `std::` and `NStr::`-style namespace-qualified concrete iterators are
+        # still fine to prefix inside a template.
         # Already qualified?
         if text[max(0, start - 9):start].rstrip().endswith("typename"):
             continue
@@ -292,6 +328,68 @@ def rewrite_condition_declarations(text):
         stats["condition-decl"] += 1
     out.append(text[pos:])
     return "".join(out)
+
+
+# ---------------------------------------------------------------------------
+#  Mechanical pass: single-argument insert()
+# ---------------------------------------------------------------------------
+#  `container.insert( container.end() )` -- MSVC's STL let insert() default-
+#  construct the element when no value was given; ISO containers do not.
+#  `*c.insert( c.end() )` becomes `( c.resize( c.size() + 1 ), c.back() )`,
+#  which yields the same reference to a fresh default-constructed last element.
+SINGLE_ARG_INSERT_RE = re.compile(
+    r"\*\s*([A-Za-z_][\w.\->]*)\s*\.\s*insert\s*\(\s*\1\s*\.\s*end\s*\(\s*\)\s*\)")
+
+
+def rewrite_single_arg_insert(text):
+    def fix(m):
+        c = m.group(1)
+        stats["insert-end"] += 1
+        return "( %s.resize( %s.size() + 1 ), %s.back() )" % (c, c, c)
+    return SINGLE_ARG_INSERT_RE.sub(fix, text)
+
+
+# ---------------------------------------------------------------------------
+#  Mechanical pass: unqualified member-function names as arguments
+# ---------------------------------------------------------------------------
+#  `r1( this, OnShowBloodUpdated )` -- MSVC 7 accepted a bare member-function
+#  name where a pointer-to-member is expected and formed &Class::Member itself.
+#  ISO C++ requires the explicit form.  The engine uses this idiom for its event
+#  registrations (`CEventRegister<C,E> r; ... r(this, OnE)`), always inside a
+#  constructor initialiser or a member function of the class that owns the
+#  method, so `&<enclosing class>::Method` is what MSVC formed.
+#
+#  Finding the enclosing class textually: the pass tracks `class X` / `struct X`
+#  headers and `X::Method(` out-of-line definitions, and uses the innermost.
+MEMBER_ARG_RE = re.compile(r"\(\s*this\s*,\s*([A-Z][A-Za-z0-9_]*)\s*\)")
+CLASS_HEADER_RE = re.compile(r"\b(?:class|struct)\s+([A-Za-z_]\w*)\s*(?::[^{;]*)?\{")
+OUT_OF_LINE_RE = re.compile(r"\b([A-Za-z_]\w*)\s*::\s*~?[A-Za-z_]\w*\s*\([^;{)]*\)\s*(?:const\s*)?(?::[^{;]*)?\{")
+
+
+def rewrite_member_function_arguments(text):
+    scopes = []   # (position, class name)
+    for m in CLASS_HEADER_RE.finditer(text):
+        scopes.append((m.start(), m.group(1)))
+    for m in OUT_OF_LINE_RE.finditer(text):
+        scopes.append((m.start(), m.group(1)))
+    scopes.sort()
+
+    def enclosing(pos):
+        name = None
+        for start, cls in scopes:
+            if start > pos:
+                break
+            name = cls
+        return name
+
+    def fix(m):
+        cls = enclosing(m.start())
+        if not cls:
+            return m.group(0)
+        stats["member-arg"] += 1
+        return "( this, &%s::%s )" % (cls, m.group(1))
+
+    return MEMBER_ARG_RE.sub(fix, text)
 
 
 # ---------------------------------------------------------------------------
@@ -762,16 +860,6 @@ public:                                                                         
         re.compile( r"chunks\.push_back\(\);" ),
         "chunks.resize( chunks.size() + 1 );  // [android] was push_back() with no argument",
     ),
-    (
-        "Script/lparser.cpp",
-        "vector::insert(pos) with no value was an MSVC extension; grow the "
-        "vector and take a reference to the new element instead.",
-        """	LocVar &res = *f->locvars.insert( f->locvars.end() );""",
-        """	// [android] was: *f->locvars.insert( f->locvars.end() ) -- MSVC's
-	// single-argument insert default-constructed the element.
-	f->locvars.resize( f->locvars.size() + 1 );
-	LocVar &res = f->locvars.back();""",
-    ),
 ]
 
 RULES += [
@@ -991,7 +1079,12 @@ RULES += [
 	template<class TOther>                                                                    \\
 	inline bool operator==( TOther *a ) const { return Get() == a; }                          \\
 	template<class TOther>                                                                    \\
-	inline bool operator!=( TOther *a ) const { return Get() != a; }                          \\""",
+	inline bool operator!=( TOther *a ) const { return Get() != a; }                          \\
+	/* `p == 0` / `p != 0`: a literal 0 is an int, which the pointer template   */\\
+	/* cannot deduce; the original operator==(const T*) accepted it as a null   */\\
+	/* pointer constant.  Keep that spelling working.                          */\\
+	inline bool operator==( int nNull ) const { return Get() == (T*)(intptr_t)nNull; }        \\
+	inline bool operator!=( int nNull ) const { return Get() != (T*)(intptr_t)nNull; }        \\""",
     ),
 ]
 
@@ -1278,6 +1371,263 @@ RULES += [
     ),
 ]
 
+# ---------------------------------------------------------------------------
+#  Rule set 7: dependent-base member access in class templates (Main)
+# ---------------------------------------------------------------------------
+#  MSVC 7 looked into dependent base classes during template definition; ISO
+#  C++ two-phase lookup does not, so a template deriving from Base<T> must say
+#  this->member or bring the name in with `using`.  These are the sites in the
+#  engine; the CObjectBase macros are fixed at the macro so every template that
+#  expands them is covered at once.
+RULES += [
+    (
+        "Misc/Basic2.h",
+        "OBJECT_BASIC_METHODS / OBJECT_NOCOPY_METHODS read CObjectBase's "
+        "nRefData/nObjData.  Expanded inside a class template that derives from "
+        "a *dependent* CObjectBase-derived base, those names need this-> under "
+        "two-phase lookup.  this-> is correct in every context the macro is used.",
+        re.compile(r"int nHoldRefs = nRefData, nHoldObjs = nObjData; ::new\(this\) classname; nRefData \+= nHoldRefs; nObjData \+= nHoldObjs;"),
+        "int nHoldRefs = this->nRefData, nHoldObjs = this->nObjData; ::new(this) classname; this->nRefData += nHoldRefs; this->nObjData += nHoldObjs;",
+    ),
+    (
+        "Main/Transform.h",
+        "CMatrixStack43 / CFBMatrixStack derive from the dependent "
+        "CBaseMatrixStack<N, T> and use its `matrices` / `nCurrentMatrix` "
+        "unqualified; bring them into scope.",
+        """template <int nMaxNumMatrices>
+class CMatrixStack43: public CBaseMatrixStack<nMaxNumMatrices, SHMatrix>
+{
+public :""",
+        """template <int nMaxNumMatrices>
+class CMatrixStack43: public CBaseMatrixStack<nMaxNumMatrices, SHMatrix>
+{
+protected:   // [android] dependent-base members (ISO two-phase lookup)
+	using CBaseMatrixStack<nMaxNumMatrices, SHMatrix>::matrices;
+	using CBaseMatrixStack<nMaxNumMatrices, SHMatrix>::nCurrentMatrix;
+public :""",
+    ),
+    (
+        "Main/Transform.h",
+        "Same for CFBMatrixStack.",
+        """template <int nMaxNumMatrices>
+class CFBMatrixStack: public CBaseMatrixStack<nMaxNumMatrices, SFBTransform>
+{
+protected:""",
+        """template <int nMaxNumMatrices>
+class CFBMatrixStack: public CBaseMatrixStack<nMaxNumMatrices, SFBTransform>
+{
+protected:   // [android] dependent-base members (ISO two-phase lookup)
+	using CBaseMatrixStack<nMaxNumMatrices, SFBTransform>::matrices;
+	using CBaseMatrixStack<nMaxNumMatrices, SFBTransform>::nCurrentMatrix;""",
+    ),
+    (
+        "Main/Sync.h",
+        "CSetSyncSrc<T> calls Add/Remove/Update of its dependent base CSyncSrc<T>.",
+        """template<class T>
+class CSetSyncSrc: public CSyncSrc<T>
+{
+	OBJECT_BASIC_METHODS( CSetSyncSrc );
+	typedef CSyncSrc<T> TParent;""",
+        """template<class T>
+class CSetSyncSrc: public CSyncSrc<T>
+{
+	OBJECT_BASIC_METHODS( CSetSyncSrc );
+	typedef CSyncSrc<T> TParent;
+	using TParent::Add;      // [android] dependent-base members
+	using TParent::Remove;
+	using TParent::Update;""",
+    ),
+    (
+        "Main/GResource.h",
+        "CLazyResourceLoader reads pValue from its dependent base.",
+        """	typedef CResourceLoader<TKey,TValue> TParent;
+	CObj<CFileRequest> pRequest;
+protected:
+	virtual CFileRequest* CreateRequest() = 0;""",
+        """	typedef CResourceLoader<TKey,TValue> TParent;
+	CObj<CFileRequest> pRequest;
+protected:
+	using TParent::pValue;   // [android] dependent-base member
+	virtual CFileRequest* CreateRequest() = 0;""",
+    ),
+]
+
+# ---------------------------------------------------------------------------
+#  Rule set 8: assorted MSVC 7 leniencies in Main
+# ---------------------------------------------------------------------------
+RULES += [
+    (
+        "Main/BuildingGrid.h",
+        "`const ZSHIFT = 16;` -- implicit int, gone since C++98 but MSVC 7 "
+        "still took it.",
+        re.compile(r"^const ZSHIFT = 16;", re.MULTILINE),
+        "const int ZSHIFT = 16;  // [android] implicit int",
+    ),
+    (
+        "Main/aiVoxelRender.h",
+        "`friend class CTParent;` where CTParent is a typedef: ISO C++ requires "
+        "`friend CTParent;` (an elaborated-type-specifier cannot name a typedef).",
+        re.compile(r"\tfriend class CTParent;"),
+        "\tfriend CTParent;  // [android] was `friend class` on a typedef",
+    ),
+    (
+        "Main/Cache.h",
+        "typename on a nested dependent enum type.",
+        re.compile(r"(?<!typename )TElement::ESplitType"),
+        "typename TElement::ESplitType",
+    ),
+    (
+        "Main/Sync.h",
+        "typename on a nested dependent struct type.",
+        re.compile(r"(?<![\w:])(?<!typename )CSyncSrc<T>::SObject\b"),
+        "typename CSyncSrc<T>::SObject",
+    ),
+    (
+        "Main/MapBuild.cpp",
+        "typename on dependent T::reference.",
+        re.compile(r"(?<!typename )\bT::reference\b"),
+        "typename T::reference",
+    ),
+    (
+        "Main/Cache.h",
+        "typename on Alloc::pointer / CTracker::pointer typedefs.",
+        re.compile(r"typedef Alloc::pointer pointer;"),
+        "typedef typename Alloc::pointer pointer;",
+    ),
+    (
+        "Main/Cache.h",
+        "typename on CTracker::pointer.",
+        re.compile(r"(?<!typename )\bCTracker::pointer\b"),
+        "typename CTracker::pointer",
+    ),
+]
+
+RULES += [
+    (
+        "Misc/EventsBase.h",
+        "The event system keys handlers by typeid(TParam) and throws by "
+        "typeid(T).  Handlers are registered from headers where the event class "
+        "is only forward-declared (wDecal.h registers for NWorld::CShowBloodUpdated "
+        "before it is defined), and ISO C++ rejects typeid on an incomplete type.  "
+        "typeid(T*) is well-formed and identifies T just as uniquely; both the "
+        "throw and the register side switch to it, so the registry stays "
+        "internally consistent.",
+        "\tThrowEventInner( typeid(T), &event ); ",
+        "\tThrowEventInner( typeid(T*), &event );  // [android] pointer type: see rule",
+    ),
+    (
+        "Misc/EventsBase.h",
+        "Register side of the same change.",
+        "\t\tRegisterEventHandler( this, typeid(TParam) );",
+        "\t\tRegisterEventHandler( this, typeid(TParam*) );  // [android]",
+    ),
+    (
+        "Misc/EventsBase.h",
+        "Unregister side of the same change.",
+        "\t\tUnregisterEventHandler( this, typeid(TParam) );",
+        "\t\tUnregisterEventHandler( this, typeid(TParam*) );  // [android]",
+    ),
+    (
+        "Main/Sync.h",
+        "CBoolSyncSrc<T,TFunc> also calls Add/Remove/Update on its dependent base.",
+        """template<class T, class TFunc>
+class CBoolSyncSrc: public CSyncSrc<T>
+{
+	OBJECT_BASIC_METHODS( CBoolSyncSrc )
+	typedef CBoolSyncSrc<T,TFunc> TThis;""",
+        """template<class T, class TFunc>
+class CBoolSyncSrc: public CSyncSrc<T>
+{
+	OBJECT_BASIC_METHODS( CBoolSyncSrc )
+	typedef CBoolSyncSrc<T,TFunc> TThis;
+	using CSyncSrc<T>::Add;      // [android] dependent-base members
+	using CSyncSrc<T>::Remove;
+	using CSyncSrc<T>::Update;""",
+    ),
+]
+
+RULES += [
+    (
+        "Main/GCombiner.cpp",
+        "SPartTransformer<T> derives from its parameter T and calls the transform "
+        "helpers T provides; qualify them (this->) so two-phase lookup finds them.",
+        """template<class T>
+struct SPartTransformer : public T
+{
+	int DoTransform( IPart *p, T::TRes *pRes, const vector<CVec3> &transformed )
+	{""",
+        """template<class T>
+struct SPartTransformer : public T
+{
+	// [android] dependent-base members (T is the template parameter)
+	using T::CopyTransform;
+	using T::SimpleTransform;
+	using T::SimpleDiscreteTransform;
+	using T::SingleSkinTransform;
+	int DoTransform( IPart *p, typename T::TRes *pRes, const vector<CVec3> &transformed )
+	{""",
+    ),
+    (
+        "Main/GCombiner.cpp",
+        "SGfxTnLTransformer<TTrans> calls DoTransform of its dependent base.",
+        """template<class TTrans>
+struct SGfxTnLTransformer : public SPartTransformer<TTrans>
+{""",
+        """template<class TTrans>
+struct SGfxTnLTransformer : public SPartTransformer<TTrans>
+{
+	using SPartTransformer<TTrans>::DoTransform;   // [android] dependent base""",
+    ),
+]
+
+RULES += [
+    (
+        "Main/aiPosition.h",
+        "SMove is a union of two views over {SPathPlace, EMoveType}.  SPathPlace "
+        "declares its own operator=, which under ISO C++ makes the union member "
+        "non-trivial and deletes SMove's implicit copy/assignment; MSVC 7 "
+        "generated a bitwise copy anyway.  Spell out that bitwise copy.",
+        """struct SMove
+{
+	union
+	{
+		struct 
+		{
+			SPathPlace dest;
+			EMoveType type;
+		};
+		struct 
+		{
+			SPathPlace first;
+			EMoveType second;
+		};
+	};
+};""",
+        """struct SMove
+{
+	union
+	{
+		struct 
+		{
+			SPathPlace dest;
+			EMoveType type;
+		};
+		struct 
+		{
+			SPathPlace first;
+			EMoveType second;
+		};
+	};
+	// [android] the anonymous union has a non-trivial member (SPathPlace has a
+	// user-declared operator=), so ISO C++ deletes the implicit special members
+	// MSVC generated.  They were bitwise copies of the 8 bytes; keep them so.
+	SMove() : dest(), type() {}
+	SMove( const SMove &a ) { memcpy( (void*)this, &a, sizeof( SMove ) ); }
+	SMove& operator=( const SMove &a ) { memcpy( (void*)this, &a, sizeof( SMove ) ); return *this; }
+};""",
+    ),
+]
+
 
 def apply_rules(text, rel_path, applied, unmatched):
     """Apply every rule whose file pattern matches.
@@ -1373,6 +1723,8 @@ def prepare(src_root, out_root, report_only=False):
             text = rewrite_enum_forward_declarations(text, forward_declared_enums)
             text = rewrite_dependent_iterators(text)
             text = rewrite_condition_declarations(text)
+            text = rewrite_single_arg_insert(text)
+            text = rewrite_member_function_arguments(text)
             text = apply_rules(text, rel_path, applied, unmatched)
 
             if not report_only:
@@ -1400,6 +1752,8 @@ def main():
           % (stats["enum-forward"], stats["enum-definition"]))
     print("  typename on dependent   : %d iterator declarations" % stats["typename"])
     print("  if-condition declarations: %d rewritten to '= expr'" % stats["condition-decl"])
+    print("  insert(end()) no-value  : %d rewritten" % stats["insert-end"])
+    print("  member-fn args          : %d qualified as &Class::Method" % stats["member-arg"])
     print("  targeted source rules   : %d applications" % len(applied))
     for rel_path, description in applied:
         print("    %-28s %s" % (rel_path, description))

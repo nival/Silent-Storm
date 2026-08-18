@@ -1,0 +1,8 @@
+; psGlossedMirror (id 71) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+mov r0.rgb, t0
++mul r0.a, v0.a, t0.a
+mul r0, r0, t1
+

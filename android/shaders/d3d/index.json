@@ -1,0 +1,938 @@
+{
+ "vertex": [
+  {
+   "id": 1,
+   "name": "vsPureGeometry"
+  },
+  {
+   "id": 2,
+   "name": "vsGlow"
+  },
+  {
+   "id": 3,
+   "name": "vsTransparentMap"
+  },
+  {
+   "id": 4,
+   "name": "vsTexture"
+  },
+  {
+   "id": 5,
+   "name": "vsTextureLM"
+  },
+  {
+   "id": 6,
+   "name": "vsTextureTexU"
+  },
+  {
+   "id": 7,
+   "name": "vsRender2D"
+  },
+  {
+   "id": 8,
+   "name": "vsRender2D2"
+  },
+  {
+   "id": 9,
+   "name": "vsTextureSqrtModulate"
+  },
+  {
+   "id": 10,
+   "name": "vsDrawTexU"
+  },
+  {
+   "id": 11,
+   "name": "vsRenderCubeMap"
+  },
+  {
+   "id": 12,
+   "name": "vsConstLightTexture"
+  },
+  {
+   "id": 13,
+   "name": "vsConstLight"
+  },
+  {
+   "id": 14,
+   "name": "vsDynamicAmbient"
+  },
+  {
+   "id": 15,
+   "name": "vsLMPDSolid"
+  },
+  {
+   "id": 16,
+   "name": "vsLMPDTexture"
+  },
+  {
+   "id": 17,
+   "name": "vsDynLMPDSolid"
+  },
+  {
+   "id": 18,
+   "name": "vsDynLMPDTexture"
+  },
+  {
+   "id": 19,
+   "name": "vsLight"
+  },
+  {
+   "id": 20,
+   "name": "vsLightPlusAmbient"
+  },
+  {
+   "id": 21,
+   "name": "vsPerPixelDiffuse"
+  },
+  {
+   "id": 22,
+   "name": "vsDirectionalLightTexture"
+  },
+  {
+   "id": 23,
+   "name": "vsDirectionalLightTexturePP"
+  },
+  {
+   "id": 24,
+   "name": "vsCLSkyCheck"
+  },
+  {
+   "id": 25,
+   "name": "vsCLSkyLight"
+  },
+  {
+   "id": 26,
+   "name": "vsCLSkyLight3"
+  },
+  {
+   "id": 27,
+   "name": "vsDirectionalAmbientLightTexture"
+  },
+  {
+   "id": 28,
+   "name": "vsNHCalcer"
+  },
+  {
+   "id": 29,
+   "name": "vsNHCalcBumped"
+  },
+  {
+   "id": 30,
+   "name": "vsFastDirBumpLight"
+  },
+  {
+   "id": 31,
+   "name": "vsFastDirTranspBumpLight"
+  },
+  {
+   "id": 32,
+   "name": "vsPreciseDirBumpLightTex"
+  },
+  {
+   "id": 33,
+   "name": "vsPreciseDirBumpLight"
+  },
+  {
+   "id": 34,
+   "name": "vsDirectionalTestSmoothed"
+  },
+  {
+   "id": 35,
+   "name": "vsDirectionalTest"
+  },
+  {
+   "id": 36,
+   "name": "vsDirectionalTestP"
+  },
+  {
+   "id": 37,
+   "name": "vsParticleLMDirectionalTest"
+  },
+  {
+   "id": 38,
+   "name": "vsDepth"
+  },
+  {
+   "id": 39,
+   "name": "vsDepthTextureMax"
+  },
+  {
+   "id": 40,
+   "name": "vsPointFalloff"
+  },
+  {
+   "id": 41,
+   "name": "vsPointLight"
+  },
+  {
+   "id": 42,
+   "name": "vsPointLightTex"
+  },
+  {
+   "id": 43,
+   "name": "vsPrecisePointBump"
+  },
+  {
+   "id": 44,
+   "name": "vsPrecisePointBumpTex"
+  },
+  {
+   "id": 45,
+   "name": "vsPointCubeMapDepth"
+  },
+  {
+   "id": 46,
+   "name": "vsCLPointLight"
+  },
+  {
+   "id": 47,
+   "name": "vsCLPointDepthCheck"
+  },
+  {
+   "id": 48,
+   "name": "vsCLPointLightShadowed"
+  },
+  {
+   "id": 49,
+   "name": "vsPerspeciveDepth"
+  },
+  {
+   "id": 50,
+   "name": "vsSpotShadow"
+  },
+  {
+   "id": 51,
+   "name": "vsJustFog"
+  },
+  {
+   "id": 52,
+   "name": "vsFoggedParticle"
+  },
+  {
+   "id": 53,
+   "name": "vsFoggedLitParticle"
+  },
+  {
+   "id": 54,
+   "name": "vsTexturedFog"
+  },
+  {
+   "id": 55,
+   "name": "vsProjectTexture"
+  },
+  {
+   "id": 56,
+   "name": "vsRegisterMap"
+  },
+  {
+   "id": 57,
+   "name": "vsRegisterMapTex"
+  },
+  {
+   "id": 58,
+   "name": "vsTextureAndMirror"
+  },
+  {
+   "id": 59,
+   "name": "vsFoggedTextureAndMirror"
+  },
+  {
+   "id": 60,
+   "name": "vsMirror"
+  },
+  {
+   "id": 61,
+   "name": "vsGlossedMirror"
+  },
+  {
+   "id": 62,
+   "name": "vsBumpedMirror"
+  },
+  {
+   "id": 63,
+   "name": "vsBumpedFresnel"
+  },
+  {
+   "id": 64,
+   "name": "vsDirPPSpecular"
+  },
+  {
+   "id": 65,
+   "name": "vsDirPPTexSpecular"
+  },
+  {
+   "id": 66,
+   "name": "vsPointPPSpecular"
+  },
+  {
+   "id": 67,
+   "name": "vsPointPPSpecularTex"
+  },
+  {
+   "id": 68,
+   "name": "vsShadowBlur"
+  },
+  {
+   "id": 69,
+   "name": "vsFullPerPixel"
+  },
+  {
+   "id": 70,
+   "name": "vsPerPixelFullTex"
+  },
+  {
+   "id": 71,
+   "name": "vsFastFullBumpLight"
+  },
+  {
+   "id": 72,
+   "name": "vsFullPPSpecular"
+  },
+  {
+   "id": 73,
+   "name": "vsFullPPTexSpecular"
+  },
+  {
+   "id": 74,
+   "name": "vsDynLMPerPixel"
+  },
+  {
+   "id": 75,
+   "name": "vsDynLMPerPixelTex"
+  },
+  {
+   "id": 76,
+   "name": "vsDynLMPreciseBumpTex"
+  },
+  {
+   "id": 77,
+   "name": "vsAlienEffect"
+  }
+ ],
+ "pixel": [
+  {
+   "id": 1,
+   "name": "psDiffuse",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 2,
+   "name": "psTFactor",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 3,
+   "name": "psTextureCopyAlpha",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 4,
+   "name": "psTextureColor",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 5,
+   "name": "psTextureAlpha",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 6,
+   "name": "psAlphaSqrtModulate",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 7,
+   "name": "psDiffuseTFactor4",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 8,
+   "name": "psDiffuseTexture",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 9,
+   "name": "psDiffuseProjectedTexture",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 10,
+   "name": "psDiffuseProjectedTexture4",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 11,
+   "name": "psDiffuseProjectedTexture16",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 12,
+   "name": "psDiffuseProjTextureTex4",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 13,
+   "name": "psDiffuseProjTextureTex16",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 14,
+   "name": "psAlphaTestDiffuseTex2",
+   "ps14_differs": false,
+   "alpha_test": true,
+   "alpha_func": "D3DCMP_GREATER",
+   "alpha_ref": "120"
+  },
+  {
+   "id": 15,
+   "name": "psAlphaTestDiffuseTex4",
+   "ps14_differs": false,
+   "alpha_test": true,
+   "alpha_func": "D3DCMP_GREATER",
+   "alpha_ref": "120"
+  },
+  {
+   "id": 16,
+   "name": "psAlphaTestTexture",
+   "ps14_differs": false,
+   "alpha_test": true,
+   "alpha_func": "D3DCMP_GREATER",
+   "alpha_ref": "120"
+  },
+  {
+   "id": 17,
+   "name": "psAlphaTestTextureCons",
+   "ps14_differs": false,
+   "alpha_test": true,
+   "alpha_func": "D3DCMP_GREATER",
+   "alpha_ref": "20"
+  },
+  {
+   "id": 18,
+   "name": "psAlphaLight",
+   "ps14_differs": false,
+   "alpha_test": true,
+   "alpha_func": "D3DCMP_GREATER",
+   "alpha_ref": "120"
+  },
+  {
+   "id": 19,
+   "name": "psModulateMultitexture",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 20,
+   "name": "psPTextureTexture",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 21,
+   "name": "psDiffuseTexMax",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 22,
+   "name": "psCLSkyLight3",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 23,
+   "name": "psShadowTest",
+   "ps14_differs": true,
+   "alpha_test": true,
+   "alpha_func": "D3DCMP_LESSEQUAL",
+   "alpha_ref": "1"
+  },
+  {
+   "id": 24,
+   "name": "psShadowTestP",
+   "ps14_differs": true,
+   "alpha_test": true,
+   "alpha_func": "D3DCMP_LESSEQUAL",
+   "alpha_ref": "1"
+  },
+  {
+   "id": 25,
+   "name": "psSoftShadowTest",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 26,
+   "name": "psShadowTestSmoothed",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 27,
+   "name": "psPerspectiveShadowTest",
+   "ps14_differs": true,
+   "alpha_test": true,
+   "alpha_func": "D3DCMP_LESSEQUAL",
+   "alpha_ref": "1"
+  },
+  {
+   "id": 28,
+   "name": "psTransparentDifTex4",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 29,
+   "name": "psTransparentTexTex4AlphaFirst",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 30,
+   "name": "psDiffuseTexture2",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 31,
+   "name": "psDiffuseTexture4",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 32,
+   "name": "psDiffuseTexture2CopyAlpha",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 33,
+   "name": "psDiffuseTexture4CopyAlpha",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 34,
+   "name": "psTexTexture4",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 35,
+   "name": "psCLTexTexture4",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 36,
+   "name": "psAlphaTestTexTexture4",
+   "ps14_differs": false,
+   "alpha_test": true,
+   "alpha_func": "D3DCMP_GREATER",
+   "alpha_ref": "120"
+  },
+  {
+   "id": 37,
+   "name": "psTexTexture4CopyAlpha",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 38,
+   "name": "psLMPDSolid",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 39,
+   "name": "psLMPDTexture",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 40,
+   "name": "psLMPDTextureAT",
+   "ps14_differs": true,
+   "alpha_test": true,
+   "alpha_func": "D3DCMP_GREATER",
+   "alpha_ref": "120"
+  },
+  {
+   "id": 41,
+   "name": "psLMPDTextureCopyAlpha",
+   "ps14_differs": true,
+   "alpha_test": true,
+   "alpha_func": "D3DCMP_GREATER",
+   "alpha_ref": "120"
+  },
+  {
+   "id": 42,
+   "name": "psPerPixelDiffuseTex4",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 43,
+   "name": "psPerPixelFullTex4",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 44,
+   "name": "psFastFullBump4",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 45,
+   "name": "psFullPerPixel4",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 46,
+   "name": "psDynLMPerPixel4",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 47,
+   "name": "psDynLMPerPixelTex4",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 48,
+   "name": "psDynLMPreciseBumpTex4",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 49,
+   "name": "psProjectedTexture",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 50,
+   "name": "psFastBump4",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 51,
+   "name": "psFastTranspBump",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 52,
+   "name": "psPreciseBump4",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 53,
+   "name": "psPrecisePointBump",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 54,
+   "name": "psPrecisePointBumpTex",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 55,
+   "name": "psPrecisePointBumpTex16",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 56,
+   "name": "psCalcNH",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 57,
+   "name": "psCalcNHBumped",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 58,
+   "name": "psPerPixelSpecular",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 59,
+   "name": "psPerPixelTexSpecular",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 60,
+   "name": "psFullPerPixelSpecular",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 61,
+   "name": "psFullPerPixelTexSpecular",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 62,
+   "name": "psPointPerPixelSpecular",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 63,
+   "name": "psPointPerPixelTexSpecular",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 64,
+   "name": "psPrecisePerPixelDiffuse",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 65,
+   "name": "psFoggedParticle",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 66,
+   "name": "psFoggedLitParticle",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 67,
+   "name": "psTexturedFog",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 68,
+   "name": "psTextureAndMirror",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 69,
+   "name": "psFoggedTextureAndMirror",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 70,
+   "name": "psMirror",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 71,
+   "name": "psGlossedMirror",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 72,
+   "name": "psBumpedMirror",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 73,
+   "name": "psBumpedFresnel",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 74,
+   "name": "psShadowBlur",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 75,
+   "name": "psAlienEffect",
+   "ps14_differs": true,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 76,
+   "name": "psPointCubeMapDepth",
+   "ps14_differs": false,
+   "alpha_test": false,
+   "alpha_func": null,
+   "alpha_ref": null
+  },
+  {
+   "id": 77,
+   "name": "psCLPointDepthCheck",
+   "ps14_differs": false,
+   "alpha_test": true,
+   "alpha_func": "D3DCMP_LESSEQUAL",
+   "alpha_ref": null
+  },
+  {
+   "id": 78,
+   "name": "psCLPointLightShadowed",
+   "ps14_differs": true,
+   "alpha_test": true,
+   "alpha_func": "D3DCMP_LESSEQUAL",
+   "alpha_ref": null
+  }
+ ]
+}

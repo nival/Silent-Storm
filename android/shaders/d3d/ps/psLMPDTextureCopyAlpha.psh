@@ -1,0 +1,17 @@
+; psLMPDTextureCopyAlpha (id 41) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+mad r0, v0, t0.a, t0
+mul_x4_sat r0.rgb, r0, t1
++mov r0.a, t1
+
+
+; ---- ps.1.4 variant ----
+ps.1.4
+texld r0, t0_dw.xyw
+texld r1, t1.xyz
+mad r0, v0, r0.a, r0
+mul_x4_sat r0.rgb, r0, r1
++mov r0.a, r1
+

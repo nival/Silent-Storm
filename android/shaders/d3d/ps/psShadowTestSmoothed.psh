@@ -1,0 +1,21 @@
+; psShadowTestSmoothed (id 26) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+add_sat r0, t0, -v0
+dp3_x4 r0, r0, c0
+add r0.rgb, r0, 1-r0
++add r0.a, r0, c1
+cnd r0.rgb, r0.a, c1, r0
++add r0.a, v0.a, v1.a
+
+
+; ---- ps.1.4 variant ----
+ps.1.4
+texld r0, t0_dw.xyw
+add_sat r1, r0, -v0
+dp3_x4 r1, r1, c0
+add r0.rgb, r0, 1-r0
++add r0.a, r1, c1
+cnd r0.rgb, r0.a, c1, r0
++add r0.a, v0.a, v1.a
+

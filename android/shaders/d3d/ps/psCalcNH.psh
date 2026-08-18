@@ -1,0 +1,16 @@
+; psCalcNH (id 56) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0 // N
+tex t1 // H
+texcoord t2 // L
+sub r1.rgb, t0, t1  // r1 = a/2; a = N-H
+dp3 r1, r1, r1  // (a/2)*(a/2)
+sub_x2 r0.rgb, t0, t1
++mad r1.a, c0, r1, c0 // c0.a = 0.5
+dp3 r0, r0, r0  // (a)*(a)
+mov r0.rgb, c0           // ro is stored to rgb, c0 has ro, or t0.a for bump
++cnd r0.a, r0.a, r1, r0  // alpha channel is subject, f(NH) is stored to alpha
+dp3_x4 r1, t0_bx2, t2_bx2
+mov_x4_sat r1, r1
+lrp r0, r1.a, r0, c1
+

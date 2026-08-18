@@ -1,0 +1,11 @@
+; psFastTranspBump (id 51) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+dp3 r0, t0_bx2, v0_bx2
+//add r0, t0, 1-t0
+mul_sat r1, r0, c0
+mul_sat r0, r0, v1
+mad r0, r1, v1, r0
+mul_x2 r0, r0, t1
+

@@ -1,0 +1,14 @@
+; psCLSkyLight3 (id 22) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+tex t2
+add_sat r0, t0, -v0
+add_sat r1, t1, -v0
+lrp r0, c0, r0, r1
+add_sat r1, t2, -v0
+lrp_x4 r0, c1, r1, r0
+add_x4_sat r0, r0, r0
+add_x4_sat r0, r0, r0
+dp3 r0, 1-r0, v1
+

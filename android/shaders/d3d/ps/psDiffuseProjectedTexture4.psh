@@ -1,0 +1,11 @@
+; psDiffuseProjectedTexture4 (id 10) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+mul_x4 r0, t0, v0
+
+
+; ---- ps.1.4 variant ----
+ps.1.4
+texld r0, t0_dw.xyw
+mul_x4 r0, r0, v0
+

@@ -1,0 +1,15 @@
+; psLMPDSolid (id 38) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+mad r0, v0, t0.a, t0
+mul_x4_sat r0.rgb, r0, c0
++add r0.a, r0, 1-r0
+
+
+; ---- ps.1.4 variant ----
+ps.1.4
+texld r0, t0_dw.xyw
+mad r0, v0, r0.a, r0
+mul_x4_sat r0.rgb, r0, c0
++add r0.a, r0, 1-r0
+

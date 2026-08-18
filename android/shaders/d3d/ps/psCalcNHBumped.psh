@@ -1,0 +1,34 @@
+; psCalcNHBumped (id 57) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0 // bump, (N)
+tex t1 // H
+texcoord t2 // L
+sub r1.rgb, t0, t1  // r1 = a/2; a = N-H
+dp3 r1, r1, r1  // (a/2)*(a/2)
+sub_x2 r0.rgb, t0, t1
++mad r1.a, c0, r1, c0 // c0.a = 0.5
+dp3 r0, r0, r0  // (a)*(a)
+mov r0.rgb, t0.a           // ro is moved to rgb, ro is stored in bump`s alpha
++cnd r0.a, r0.a, r1, r0  // alpha channel is subject, f(NH) is stored to alpha
+dp3_x4 r1, c2, t2_bx2
+mov_x4_sat r1, r1
+lrp r0, r1.a, r0, c1
+
+
+; ---- ps.1.4 variant ----
+ps.1.4
+texld r0, t0 // bump, (N)
+texld r1, t1 // H
+texcrd r2.xyz, t2 // L
+sub r5.rgb, r0, r1  // r5 = a/2; a = N-H
+dp3 r5, r5, r5  // (a/2)*(a/2)
+sub_x2 r4.rgb, r0, r1
++mad r5.a, c0, r5, c0 // c0.a = 0.5
+dp3 r4, r4, r4  // (a)*(a)
+mov r4.rgb, r0.a           // ro is moved to rgb, ro is stored in bump`s alpha
++cnd r4.a, r4.a, r5, r4  // alpha channel is subject, f(NH) is stored to alpha
+dp3_x8_sat r5, c2, r2_bx2
+//mov_x4_sat r5, r5
+lrp r4.a, r5.a, r4, c1
+mov r0, r4
+

@@ -1,0 +1,19 @@
+; psCLPointLightShadowed (id 78) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+tex t2
+dp3_sat r0, t1_bx2, v1_bx2
+mul r0.rgb, t0, v0
++sub r0.a, r0, t2
+
+
+; ---- ps.1.4 variant ----
+ps.1.4
+texld r0, t0_dw.xyw
+texld r1, t1.xyz
+texld r2, t2.xyz
+dp3_sat r5, r1_bx2, v1_bx2
+mul r0.rgb, r0, v0
++sub r0.a, r5, r2
+

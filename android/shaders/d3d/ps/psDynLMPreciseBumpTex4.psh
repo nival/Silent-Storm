@@ -1,0 +1,25 @@
+; psDynLMPreciseBumpTex4 (id 48) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+tex t2
+tex t3
+dp3_sat r0, t0_bx2, t1_bx2
+mul r0, r0, v0
+mad r0, r0, t3, v1
+mul_x4 r0.rgb, r0, t2
++mov r0.a, t2.a
+
+
+; ---- ps.1.4 variant ----
+ps.1.4
+texld r0, t0.xyz
+texld r1, t1.xyz
+texld r2, t2.xyz
+texld r3, t3_dw.xyw
+dp3_sat r5, r0_bx2, r1_bx2
+mul r5, r5, v0
+mad r5, r5, r3, v1
+mul_x4 r0.rgb, r5, r2
++mov r0.a, r2.a
+

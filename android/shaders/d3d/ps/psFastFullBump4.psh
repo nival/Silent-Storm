@@ -1,0 +1,35 @@
+; psFastFullBump4 (id 44) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+tex t2
+tex t3
+dp3_sat r0, t0_bx2, v0_bx2
+dp3 r1.rgb, t0_bx2, v1_bx2
++mul r0.a, r0.a, v1.a
+mad r1.rgb, r1, c2, c1
+mad r1.rgb, r1, t2.a, t2
+mul r1.rgb, r1, t1
+mul r0.rgb, r0.a, c3
+mul r0.rgb, r0, t3
++mov r0.a, t2.a
+mad_x4 r0.rgb, r0, t1, r1
+
+
+; ---- ps.1.4 variant ----
+ps.1.4
+texld r0, t0.xyz
+texld r1, t1.xyz
+texld r2, t2_dw.xyw
+texld r3, t3_dw.xyw
+dp3_sat r4, r0_bx2, v0_bx2
+dp3 r5.rgb, r0_bx2, v1_bx2
++mul r4.a, r4.a, v1.a
+mad r5.rgb, r5, c2, c1
+mad r5.rgb, r5, r2.a, r2
+mul r5.rgb, r5, r1
+mul r4.rgb, r4.a, c3
+mul r4.rgb, r4, r3
++mov r0.a, r2.a
+mad_x4 r0.rgb, r4, r1, r5
+

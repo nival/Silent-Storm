@@ -1,0 +1,10 @@
+; psPreciseBump4 (id 52) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+tex t2
+dp3_sat r0, t0_bx2, t1_bx2
+mul r0, r0, t2
+mul_x4 r0.rgb, r0, v0
++mov r0.a, t2.a
+

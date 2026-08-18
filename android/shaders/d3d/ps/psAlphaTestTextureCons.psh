@@ -1,0 +1,5 @@
+; psAlphaTestTextureCons (id 17) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+mov r0, t0
+

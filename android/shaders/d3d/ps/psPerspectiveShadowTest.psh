@@ -1,0 +1,13 @@
+; psPerspectiveShadowTest (id 27) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+mov r0.rgb, v0
++add_sat r0.a, t0.a, -v0.a
+
+
+; ---- ps.1.4 variant ----
+ps.1.4
+texld r0, t0_dw.xyw
+mov r0.rgb, v0
++add_sat r0.a, r0.a, -v0.a
+

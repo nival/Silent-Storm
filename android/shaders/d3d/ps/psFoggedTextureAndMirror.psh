@@ -1,0 +1,13 @@
+; psFoggedTextureAndMirror (id 69) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+tex t2
+mul r0.rgb, t0, v0
++mov r0.a, t0.a
+;add r0.rgb, r0, t1
+lrp r0, v0.a, t1, r0
+mul r1.rgb, t2, r0.a
+mad r0.rgb, r0, 1-t2.a, r1
+;lrp r0.rgb, t2.a, t2, r0
+

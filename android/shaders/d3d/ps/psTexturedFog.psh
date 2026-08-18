@@ -1,0 +1,8 @@
+; psTexturedFog (id 67) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+texm3x2pad t1, t0
+texm3x2tex t2, t0
+mov r0, t2
+
+

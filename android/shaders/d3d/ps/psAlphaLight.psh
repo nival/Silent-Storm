@@ -1,0 +1,6 @@
+; psAlphaLight (id 18) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+mov r0.rgb, v0
++mov r0.a, t0.a
+

@@ -1,0 +1,7 @@
+; psTexTexture4CopyAlpha (id 37) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+mul_x4_sat r0.rgb, t0, t1
++mov r0.a, t1.a
+

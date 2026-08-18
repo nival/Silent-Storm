@@ -1,0 +1,6 @@
+; psDiffuseTexture2CopyAlpha (id 32) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+mul_x2 r0.rgb, t0, v0
++mov r0.a, t0.a
+

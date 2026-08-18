@@ -1,0 +1,13 @@
+; psBumpedFresnel (id 73) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+tex t2
+dp3 r1.rgb, t0_bx2, t2_bx2
++mul r0.a, c0.a, t1.a
+mul r1.rgb, 1-r1, 1-r1
++mul r1.a, c0.b, t1.a
+mul r1.rgb, r1, r1
+mov r0.rgb, t1
++mad r0.a, r1.a, r1.b, r0.a
+

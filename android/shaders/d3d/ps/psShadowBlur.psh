@@ -1,0 +1,22 @@
+; psShadowBlur (id 74) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+tex t2
+tex t3
+add_x4 r0.a, t0.a, -t1.a
+mad r0.a, r0.a, r0.a, c0.a
+; first texture blend, calc difference for second
+cnd r1.rgb, r0.a, t0, t1
++add_x4 r0.a, t0.a, -t2.a
+lrp r0.rgb, c1.a, t0, r1
++mad r0.a, r0.a, r0.a, c0.a
+; second texture blend, calc difference for third
+cnd r1.rgb, r0.a, t0, t2
++add_x4 r0.a, t0.a, -t3.a
+lrp r0.rgb, c2.a, r0, r1
++mad r0.a, r0.a, r0.a, c0.a
+; third texture blend
+cnd r1.rgb, r0.a, t0, t3
+lrp r0.rgb, c3.a, r0, r1
+

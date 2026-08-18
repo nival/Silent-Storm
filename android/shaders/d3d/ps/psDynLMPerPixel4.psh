@@ -1,0 +1,21 @@
+; psDynLMPerPixel4 (id 46) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+dp3_sat r0, t0_bx2, c0
+mul r0.rgb, r0, c1
+mad r0, r0, t1, v0
+mul_x4 r0.rgb, r0, c2
++mov r0.a, c2.a
+
+
+; ---- ps.1.4 variant ----
+ps.1.4
+texld r0, t0.xyz
+texld r1, t1_dw.xyw
+dp3_sat r5, r0_bx2, c0
+mul r5.rgb, r5, c1
+mad r5, r5, r1, v0
+mul_x4 r0.rgb, r5, c2
++mov r0.a, c2.a
+

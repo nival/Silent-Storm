@@ -1249,3 +1249,9 @@ extern "C" int _findclose( intptr_t hFile )
 {
     return FindClose( (HANDLE)hFile ) ? 0 : -1;
 }
+
+extern "C" UINT GetDoubleClickTime( void ) { return A5_DOUBLE_CLICK_MS; }
+
+namespace { long g_nPointerX = 0, g_nPointerY = 0; }
+extern "C" void a5_set_pointer_position( long x, long y ) { g_nPointerX = x; g_nPointerY = y; }
+extern "C" void a5_get_pointer_position( long *px, long *py ) { if ( px ) *px = g_nPointerX; if ( py ) *py = g_nPointerY; }

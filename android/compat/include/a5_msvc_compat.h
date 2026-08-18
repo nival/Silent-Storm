@@ -163,6 +163,10 @@ char *a5_fullpath( char *absPath, const char *relPath, size_t maxLength );
 extern "C" {
 long      a5_u16_atol( const char16_t *psz );
 long      a5_u16_strtol( const char16_t *psz, char16_t **ppEnd, int nRadix );
+/*  swscanf( s, "%d%Ns", &n, buf ): parses an integer then up to nMaxSuffix
+ *  non-space characters into pSuffix (NUL-terminated).  Returns the number of
+ *  items assigned (0, 1 or 2), like scanf. */
+int       a5_u16_scan_int_and_suffix( const char16_t *psz, int *pnValue, char16_t *pSuffix, int nMaxSuffix );
 size_t    a5_u16len( const char16_t *psz );
 char16_t *a5_u16cpy( char16_t *pDest, const char16_t *pSrc );
 char16_t *a5_u16cat( char16_t *pDest, const char16_t *pSrc );
@@ -178,6 +182,13 @@ inline size_t    wcslen( const char16_t *psz )                          { return
 inline char16_t *wcscpy( char16_t *pDest, const char16_t *pSrc )        { return a5_u16cpy( pDest, pSrc ); }
 inline char16_t *wcscat( char16_t *pDest, const char16_t *pSrc )        { return a5_u16cat( pDest, pSrc ); }
 inline int       wcscmp( const char16_t *a, const char16_t *b )         { return a5_u16cmp( a, b ); }
+inline const char16_t *wcschr( const char16_t *psz, char16_t c )
+{
+    for ( ; *psz; ++psz )
+        if ( *psz == c )
+            return psz;
+    return c == 0 ? psz : 0;
+}
 inline long      wcstol( const char16_t *psz, char16_t **ppEnd, int nRadix ) { return a5_u16_strtol( psz, ppEnd, nRadix ); }
 inline int       vswprintf( char16_t *pBuffer, const char16_t *pszFormat, va_list args )
                                                                         { return a5_u16_vsprintf( pBuffer, pszFormat, args ); }

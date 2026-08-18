@@ -5,11 +5,14 @@ this repository (`Soft/Andy/Jan03/a5dll`). The original targets Win32, DirectX 8
 MSVC .NET 2003 and STLport; this directory builds the same code with the Android
 NDK (clang/libc++) for `arm64-v8a`, `armeabi-v7a` and `x86_64`.
 
-**Status: the engine core runs on Android.** File I/O, the chunk serialiser, the
-`.res` package reader, the object model and the Lua 4 VM are ported and verified
-against real game data on device. The renderer, audio and the game layer itself
-(`Main`, 154k lines) are not ported yet — see [docs/PORTING.md](docs/PORTING.md)
-for what that involves and what order it should happen in.
+**Status: the engine core runs on Android, and the game module compiles.** File
+I/O, the chunk serialiser, the `.res` package reader, the object model, the
+`game.db` schema, texture loading and the Lua 4 VM are ported and verified
+against real game data on device. `Main` — the renderer, scene, AI, UI and game
+logic, 154k lines — compiles for arm64 in 264 of its 269 files; the five that
+remain are the Direct3D 9 backend, which needs a GLES implementation behind the
+engine's own `Gfx.h` interface. See [docs/PORTING.md](docs/PORTING.md) for the
+scope of that and the order things should happen in.
 
 The app currently boots, mounts your game data, exercises those subsystems and
 shows the result on screen through GLES 2.0:
@@ -92,8 +95,9 @@ That list *is* the port's diff against 2003. Everything else is new code in
 | `MiscDll` | console variables/commands, log streams | ported (builds) |
 | `DBFormat` | the `game.db` schema (130 record classes) | ported, runs; shipped `game.db` files are a newer format than this source — see PORTING.md |
 | `Image` + libpng | BMP/TGA/PNG and MMP/DXT textures | ported, verified (real textures decode to their stored average colour) |
-| `Main` | renderer, scene, AI, UI, game logic | not started |
-| `Input`, `FModSound` | DirectInput, FMOD | to be replaced, not wrapped |
+| `Main` | renderer, scene, AI, UI, game logic (154k lines) | 264/269 files compile for arm64; the 5 left are the D3D9 backend (~6.5k lines, ~40 device calls) — see PORTING.md |
+| `Input` | DirectInput | `Input.h` staged as the seam for a touch layer |
+| `FModSound` | FMOD 3 wrapper | `NFMSound` implemented as a silent null back end |
 
 ## Notable things the port had to fix
 

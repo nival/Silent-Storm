@@ -325,3 +325,25 @@ extern "C" long a5_u16_strtol( const char16_t *psz, char16_t **ppEnd, int nRadix
         *ppEnd = const_cast< char16_t * >( psz ) + ( pNarrowEnd - szNarrow );
     return nResult;
 }
+
+extern "C" int a5_u16_scan_int_and_suffix( const char16_t *psz, int *pnValue, char16_t *pSuffix, int nMaxSuffix )
+{
+    if ( !psz )
+        return 0;
+    while ( *psz == u' ' || *psz == u'\t' )
+        ++psz;
+    char16_t *pEnd = 0;
+    const long nValue = a5_u16_strtol( psz, &pEnd, 10 );
+    if ( pEnd == psz )
+        return 0;
+    if ( pnValue )
+        *pnValue = (int)nValue;
+    psz = pEnd;
+    while ( *psz == u' ' || *psz == u'\t' )
+        ++psz;
+    int n = 0;
+    for ( ; psz[ n ] && psz[ n ] != u' ' && psz[ n ] != u'\t' && n < nMaxSuffix; ++n )
+        pSuffix[ n ] = psz[ n ];
+    pSuffix[ n ] = 0;
+    return n > 0 ? 2 : 1;
+}

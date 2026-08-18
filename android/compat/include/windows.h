@@ -110,6 +110,22 @@ typedef long                HRESULT;
 #define SUCCEEDED(hr) (((HRESULT)(hr)) >= 0)
 #define FAILED(hr)    (((HRESULT)(hr)) <  0)
 
+/*  Win32's <windows.h> defines min/max as macros unless NOMINMAX is set, and
+ *  the engine never set it: every `min(`/`max(` in the tree is the macro, and
+ *  quite a few mix types (int with size_t, float with int) in ways the
+ *  std::min templates reject.  Provide the same macros -- and, since a macro
+ *  named min breaks `std::min(`, spell them so that the qualified call still
+ *  resolves to the function: the macro expands only for an unqualified
+ *  `min(`.  (Function-like macros are not expanded when preceded by `::`.) */
+#ifndef NOMINMAX
+#  ifndef min
+#    define min(a,b) (((a) < (b)) ? (a) : (b))
+#  endif
+#  ifndef max
+#    define max(a,b) (((a) > (b)) ? (a) : (b))
+#  endif
+#endif
+
 #define MAKEWORD(a,b)  ((WORD)(((BYTE)(a)) | (((WORD)((BYTE)(b))) << 8)))
 #define MAKELONG(a,b)  ((LONG)(((WORD)(a)) | (((DWORD)((WORD)(b))) << 16)))
 #define LOWORD(l)      ((WORD)((DWORD)(l) & 0xffff))
@@ -372,6 +388,57 @@ UINT  GetPrivateProfileIntA( LPCSTR sect, LPCSTR key, INT def, LPCSTR file );
 #ifdef __cplusplus
 }  /* extern "C" */
 #endif
+
+/* ----- Pointer position -----------------------------------------------------
+ *  Windows code reads the cursor with GetCursorPos + ScreenToClient.  On Android
+ *  the platform layer publishes the last touch/pointer position here (in
+ *  window pixels) and engine code reads it back. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+void a5_set_pointer_position( long x, long y );
+void a5_get_pointer_position( long *px, long *py );
+#ifdef __cplusplus
+}
+#endif
+
+/* ----- User-interface metrics --------------------------------------------- */
+/*  Windows' system double-click interval (default 500 ms).  Android's
+ *  ViewConfiguration.getDoubleTapTimeout() is 300 ms; the UI reads this once. */
+#define A5_DOUBLE_CLICK_MS 300
+#ifdef __cplusplus
+extern "C"
+#endif
+UINT GetDoubleClickTime( void );
+
+/* ----- Bitmap file structures ---------------------------------------------
+ *  Used by the screenshot writer (Main/iMain.cpp).  Layout is the on-disk BMP
+ *  format, so the packing must be exact. */
+#pragma pack(push, 2)
+typedef struct tagBITMAPFILEHEADER {
+    WORD  bfType;
+    DWORD bfSize;
+    WORD  bfReserved1;
+    WORD  bfReserved2;
+    DWORD bfOffBits;
+} BITMAPFILEHEADER;
+#pragma pack(pop)
+/*  Note: Win32 LONG is 32-bit; on LP64 Android `long` is 64, so the on-disk
+ *  fields are spelled int32_t explicitly. */
+typedef struct tagBITMAPINFOHEADER {
+    DWORD   biSize;
+    int32_t biWidth;
+    int32_t biHeight;
+    WORD    biPlanes;
+    WORD    biBitCount;
+    DWORD   biCompression;
+    DWORD   biSizeImage;
+    int32_t biXPelsPerMeter;
+    int32_t biYPelsPerMeter;
+    DWORD   biClrUsed;
+    DWORD   biClrImportant;
+} BITMAPINFOHEADER;
+#define BI_RGB 0
 
 /* ----- Virtual-key codes --------------------------------------------------
  *  The UI layer compares against these for text-field navigation.  Values are

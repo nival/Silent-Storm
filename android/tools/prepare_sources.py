@@ -38,8 +38,11 @@ DEFAULT_OUT = os.path.join(ANDROID_DIR, "gen")
 #  Input is staged for its headers: Input.h is a DirectInput-free interface that
 #  the Android touch layer will implement, and Bind.h/Bind.cpp (action mapping)
 #  are portable.  Input.cpp itself is DirectInput and is never built.
+#  FModSound is staged for FMsound.h only: it is the engine's own audio
+#  interface (NFMSound::*), and platform/audio_null.cpp implements it without
+#  FMOD.  FMSound.cpp -- the FMOD 3 wrapper -- is never built.
 MODULES = ["Misc", "FileIO", "Script", "MiscDll", "Image", "DBFormat",
-           "ADOFake", "ADOImport", "Main", "libpng", "Input"]
+           "ADOFake", "ADOImport", "Main", "libpng", "Input", "FModSound"]
 
 COPY_EXTENSIONS = {".cpp", ".c", ".h", ".hpp", ".inl", ".txt"}
 
@@ -338,14 +341,14 @@ def rewrite_condition_declarations(text):
 #  `*c.insert( c.end() )` becomes `( c.resize( c.size() + 1 ), c.back() )`,
 #  which yields the same reference to a fresh default-constructed last element.
 SINGLE_ARG_INSERT_RE = re.compile(
-    r"\*\s*([A-Za-z_][\w.\->]*)\s*\.\s*insert\s*\(\s*\1\s*\.\s*end\s*\(\s*\)\s*\)")
+    r"\*\s*([A-Za-z_]\w*(?:(?:\.|->)[A-Za-z_]\w*)*)\s*(\.|->)\s*insert\s*\(\s*\1\s*\2\s*end\s*\(\s*\)\s*\)")
 
 
 def rewrite_single_arg_insert(text):
     def fix(m):
-        c = m.group(1)
+        c, op = m.group(1), m.group(2)
         stats["insert-end"] += 1
-        return "( %s.resize( %s.size() + 1 ), %s.back() )" % (c, c, c)
+        return "( %s%sresize( %s%ssize() + 1 ), %s%sback() )" % (c, op, c, op, c, op)
     return SINGLE_ARG_INSERT_RE.sub(fix, text)
 
 
@@ -382,9 +385,15 @@ def rewrite_member_function_arguments(text):
             name = cls
         return name
 
+    # A name defined as a free function in this file is not a member, however it
+    # is passed (GView.cpp: `SetShadowsMode( this, IsNormalViewMode )` where
+    # IsNormalViewMode is an inline free function).
+    free_functions = set(re.findall(
+        r"^\s*(?:static\s+|inline\s+)+[A-Za-z_][\w:<>]*[\s*&]+([A-Za-z_]\w*)\s*\(", text, re.MULTILINE))
+
     def fix(m):
         cls = enclosing(m.start())
-        if not cls:
+        if not cls or m.group(1) in free_functions:
             return m.group(0)
         stats["member-arg"] += 1
         return "( this, &%s::%s )" % (cls, m.group(1))
@@ -2074,6 +2083,370 @@ private:""",
 #  forbids taking its address.  A named local with the same lifetime (the full
 #  expression) is the equivalent.
 RULES += [
+]
+
+# ---------------------------------------------------------------------------
+#  Rule set 11: the last one-offs in Main
+# ---------------------------------------------------------------------------
+RULES += [
+    (
+        "Main/aiVoxelRender.h",
+        "CTVoxelRenderer<TFinal,TRes> calls RasterNoClip of its dependent base "
+        "CRasterizer<TFinal>.",
+        """template <class TFinal, class TRes>
+class CTVoxelRenderer : public CRasterizer<TFinal>
+{
+private:""",
+        """template <class TFinal, class TRes>
+class CTVoxelRenderer : public CRasterizer<TFinal>
+{
+protected:   // [android] dependent-base member
+	using CRasterizer<TFinal>::RasterNoClip;
+private:""",
+    ),
+    (
+        "Main/aiPassCalcer.cpp",
+        "MarkCandidatesToDisplace is a file-static helper naming the private "
+        "nested CPassCalcer::STile; access on nested types was not enforced by "
+        "MSVC 7.  Same fix as the others: make it public in the header.",
+        None, None,
+    ),
+]
+RULES.pop()
+RULES += [
+    (
+        "Main/RodJunction.cpp",
+        "`const iRnd = ...` -- implicit int.",
+        "\tconst iRnd = pRand->Get( edges.size() );",
+        "\tconst int iRnd = pRand->Get( edges.size() );  // [android] implicit int",
+    ),
+    (
+        "Main/iCommonUI.cpp",
+        "swprintf( ..., u\"%s\", <u16string> ) passes a std::basic_string through "
+        "varargs, which is undefined -- MSVC 7 happened to pass the buffer "
+        "pointer.  Pass .c_str() explicitly.",
+        re.compile(r'swprintf\( wsBuffer, u"%s: --- ", GetDBString\( pShotModeNames\[nTemp\]\.nStringID \) \);'),
+        'swprintf( wsBuffer, u"%s: --- ", GetDBString( pShotModeNames[nTemp].nStringID ).c_str() );  // [android] .c_str()',
+    ),
+    (
+        "Main/iSaveManager.cpp",
+        "MSVC's `struct _stat` / `_stat()` are POSIX stat under other names.",
+        "\tstruct _stat sStat;\n\tint nRet = _stat( GetSlotFilePath( szName, S_SAVE_FILENAME ).c_str(), &sStat );",
+        "\tstruct stat sStat;   // [android] MSVC _stat -> POSIX stat\n"
+        "\tchar szResolved[ 1024 ];\n"
+        "\ta5_resolve_path( GetSlotFilePath( szName, S_SAVE_FILENAME ).c_str(), szResolved, sizeof( szResolved ) );\n"
+        "\tint nRet = stat( szResolved, &sStat );",
+    ),
+    (
+        "Main/iSaveManager.cpp",
+        "wcsftime on char16_t: format narrow, widen (the format is ASCII digits "
+        "and separators).",
+        "\twcsftime( wcBuffer, MAX_PATH, u\"%d/%m/%y\", pLocalTime );",
+        "\t{   // [android] wcsftime has no char16_t form: format narrow, widen\n"
+        "\t\tchar szNarrow[ 64 ];\n"
+        "\t\tstrftime( szNarrow, sizeof( szNarrow ), \"%d/%m/%y\", pLocalTime );\n"
+        "\t\tint i = 0;\n"
+        "\t\tfor ( ; szNarrow[ i ] && i < MAX_PATH - 1; ++i ) wcBuffer[ i ] = (WCHAR)(unsigned char)szNarrow[ i ];\n"
+        "\t\twcBuffer[ i ] = 0;\n"
+        "\t}",
+    ),
+    (
+        "Main/iSaveManager.cpp",
+        "Add <sys/stat.h> for the stat() above.",
+        '#include "StdAfx.h"',
+        '#include "StdAfx.h"\n#include <sys/stat.h>   // [android] stat()',
+    ),
+]
+
+RULES += [
+    (
+        "Main/aiPassCalcer.h",
+        "CPassCalcer::STile is named by a file-static helper in aiPassCalcer.cpp; "
+        "MSVC 7 did not enforce access on nested types.  Make the typedef public.",
+        """class CPassCalcer
+{
+	typedef CNodesLayer::STile STile;
+	struct SLadderInfo""",
+        """class CPassCalcer
+{
+public:   // [android] nested typedef named from a file-static helper (was private)
+	typedef CNodesLayer::STile STile;
+private:
+	struct SLadderInfo""",
+    ),
+]
+
+RULES += [
+    (
+        "Main/GRenderLight.cpp",
+        "`inline IsPointLightSupported(...)` -- implicit int (it returns a bool).",
+        "inline IsPointLightSupported( ERenderPath renderPath )",
+        "inline bool IsPointLightSupported( ERenderPath renderPath )  // [android] implicit int",
+    ),
+    (
+        "Main/BuildingSchema.cpp",
+        "`const nz = ...` -- implicit int.",
+        "\t\tconst nz = pI->ptJ.z;",
+        "\t\tconst int nz = pI->ptJ.z;  // [android] implicit int",
+    ),
+    (
+        "Main/A5Script.cpp",
+        "`{ (0,0) }` as an aggregate initialiser is a comma expression yielding "
+        "0, which MSVC 7 accepted for the first (const char*) member; ISO C++ "
+        "does not convert int to pointer.  The intent is a null terminator "
+        "entry: `{ { 0, 0 } }`.",
+        "Script::SRegFunction pLuaPtrTagFuncList[] = { (0,0) };",
+        "Script::SRegFunction pLuaPtrTagFuncList[] = { { 0, 0 } };  // [android] was `{ (0,0) }`",
+    ),
+    (
+        "Main/Cursor.cpp",
+        "SystemParametersInfo(SPI_GETMOUSE) reads Windows' mouse acceleration "
+        "thresholds; there is no equivalent for a touch screen.  Use the values "
+        "the code already falls back to (no acceleration).",
+        """	DWORD pdwParams[3];
+	SystemParametersInfo( SPI_GETMOUSE, 0, pdwParams, 0 );
+
+	fThreshold1 = pdwParams[0];
+	fThreshold2 = pdwParams[1];
+	fAcceleration = pdwParams[2];""",
+        """	// [android] was SystemParametersInfo( SPI_GETMOUSE ): Windows mouse
+	// acceleration thresholds.  A touch screen has none -- take the values the
+	// original used when the query returned zeros.
+	fThreshold1 = 6;
+	fThreshold2 = 10;
+	fAcceleration = 0;""",
+    ),
+    (
+        "Main/Cursor.cpp",
+        "GetCursorPos/ScreenToClient in the editor cursor: the pointer position "
+        "comes from the input layer on Android, and this cursor is the map "
+        "editor's, which does not run on the device.  Read the position from the "
+        "compat pointer state so the code still compiles and behaves sanely.",
+        """	POINT sPoint;
+	GetCursorPos( &sPoint );
+	ScreenToClient( NGfx::GetHWND(), &sPoint );""",
+        """	POINT sPoint;
+	a5_get_pointer_position( &sPoint.x, &sPoint.y );   // [android] was GetCursorPos + ScreenToClient""",
+    ),
+]
+
+#  swscanf on char16_t.  libc has no char16_t scanf, and a generic narrow-and-
+#  forward wrapper would be wrong for %s (it would write char into a WCHAR
+#  buffer).  Only four call sites exist, with two formats; each is rewritten
+#  to the explicit conversion it performs.
+RULES += [
+    (
+        "Main/UIMLHandlers.h",
+        "swscanf( \"%x\" ) -> strtol on the narrowed string.",
+        "\t\tswscanf( wsColor.c_str(), u\"%x\", &sColor.color );",
+        "\t\tsColor.color = (DWORD)a5_u16_strtol( wsColor.c_str(), 0, 16 );  // [android] was swscanf %x",
+    ),
+    (
+        "Main/GText.cpp",
+        "swscanf( \"%x\" ) -> strtol on the narrowed string.",
+        "\t\tswscanf( iTemp->wsString.c_str(), u\"%x\", &sState.sColor.color );",
+        "\t\tsState.sColor.color = (DWORD)a5_u16_strtol( iTemp->wsString.c_str(), 0, 16 );  // [android] was swscanf %x",
+    ),
+    (
+        "Main/UIMLHandlers.h",
+        "swscanf( \"%d%2s\" ): a number followed by an optional two-character "
+        "modifier (e.g. \"12px\").  Parse the number with strtol and copy up to "
+        "two following non-space characters, returning the same count swscanf "
+        "would have.",
+        "\t\t\t\t\tint nParams = swscanf( wsParam.c_str(), u\"%d%2s\", &sState.sFont.nSize, wsString );",
+        "\t\t\t\t\tint nParams = a5_u16_scan_int_and_suffix( wsParam.c_str(), &sState.sFont.nSize, wsString, 2 );  // [android] was swscanf %d%2s",
+    ),
+    (
+        "Main/GText.cpp",
+        "Same %d%2s form.",
+        "\t\t\t\tint nParams = swscanf( iTemp->wsString.c_str(), u\"%d%2s\", &sNewFont.nSize, wsString );",
+        "\t\t\t\tint nParams = a5_u16_scan_int_and_suffix( iTemp->wsString.c_str(), &sNewFont.nSize, wsString, 2 );  // [android] was swscanf %d%2s",
+    ),
+    (
+        "Main/DG.H",
+        "CDGPtr<TFunc> is initialised from CObj<Derived>/CPtr<Derived> in three "
+        "places (wOSBase.cpp, wAnimation.cpp, aiVolumeCalcer.cpp); MSVC chained "
+        "operator T*() into the TFunc* constructor.  Add the converting "
+        "constructor, as done for CPtr.",
+        """	CDGPtr( TFunc *_pNode ): pNode(_pNode) { nVersion = 0; }""",
+        """	CDGPtr( TFunc *_pNode ): pNode(_pNode) { nVersion = 0; }
+	// [android] converting ctor/assignment from any smart pointer whose pointee
+	// converts to TFunc* (both, or assignment becomes ambiguous between them)
+	template<class TOther, class TOtherRef>
+	CDGPtr( const CPtrBase<TOther, TOtherRef> &a ): pNode( a.GetPtr() ) { nVersion = 0; }
+	template<class TOther, class TOtherRef>
+	CDGPtr& operator=( const CPtrBase<TOther, TOtherRef> &a ) { pNode = a.GetPtr(); nVersion = 0; return *this; }""",
+    ),
+]
+
+# ---------------------------------------------------------------------------
+#  Rule set 12: the remaining x86 inline assembly in Main
+# ---------------------------------------------------------------------------
+#  Four MMX sites, all small pixel/vector arithmetic.  Each is replaced by the
+#  same arithmetic in C++; where Nival left a C++ version in comments next to
+#  the asm (2DSceneSW.cpp) that is the reference.
+
+#  Bound.h -- an axis-aligned bounding-box accumulator that keeps min/max in
+#  MMX registers across three calls (Start / Add x N / Store).  The compares
+#  are integer pcmpgtd on float bit patterns, a trick valid for IEEE floats of
+#  matching sign; the plain float min/max is what it computed.
+RULES += [
+    (
+        "Main/Bound.h",
+        "MMX bounding-box accumulator -> the same min/max with the state in a "
+        "thread-local instead of MMX registers.",
+        re.compile(
+            r"// should not be mixed with fpu & mmx code from StartMMXBound to StoreMMXBoundResult\n"
+            r"#pragma warning\( disable : 4799 \)\n"
+            r"inline void StartMMXBound\( CVec3 \*pMin, CVec3 \*pMax \)\n\{.*?"
+            r"inline void StoreMMXBoundResult\( CVec3 \*pMin, CVec3 \*pMax \)\n\{.*?\n\}\n"
+            r"#pragma warning\( default : 4799 \)\n",
+            re.DOTALL),
+        """// [android] Was MMX: min/max held in mm4..mm7 between StartMMXBound and
+// StoreMMXBoundResult, compared with pcmpgtd on the float bit patterns.  The
+// same accumulator with the state in thread-local storage.  Callers pair the
+// three calls within one function, so a single slot per thread is enough.
+struct SBoundAccumulator { CVec3 vMin, vMax; };
+inline SBoundAccumulator& GetBoundAccumulator() { static thread_local SBoundAccumulator acc; return acc; }
+inline void StartMMXBound( CVec3 *pMin, CVec3 *pMax )
+{
+	SBoundAccumulator &a = GetBoundAccumulator();
+	a.vMin = *pMin;
+	a.vMax = *pMax;
+}
+inline void AddMMXBoundPoint( const CVec3 *p )
+{
+	SBoundAccumulator &a = GetBoundAccumulator();
+	if ( p->x < a.vMin.x ) a.vMin.x = p->x;  if ( p->x > a.vMax.x ) a.vMax.x = p->x;
+	if ( p->y < a.vMin.y ) a.vMin.y = p->y;  if ( p->y > a.vMax.y ) a.vMax.y = p->y;
+	if ( p->z < a.vMin.z ) a.vMin.z = p->z;  if ( p->z > a.vMax.z ) a.vMax.z = p->z;
+}
+inline void StoreMMXBoundResult( CVec3 *pMin, CVec3 *pMax )
+{
+	SBoundAccumulator &a = GetBoundAccumulator();
+	*pMin = a.vMin;
+	*pMax = a.vMax;
+}
+""",
+    ),
+]
+
+#  GSceneParticles.h -- particle colour: dwResColor = dwColor (*) dwPColor with
+#  the alpha of dwColor replicated into a scale, all in 8-bit lanes.  Reading
+#  the asm: per channel, ((c*p)>>8) is scaled by (a>>1) and >>5 with the
+#  0x7f000000 alpha override -- i.e. modulate the particle colour by the
+#  vertex colour and by its own alpha, alpha forced to 0x7f.
+RULES += [
+    (
+        "Main/GSceneParticles.h",
+        "MMX particle colour modulate -> per-channel arithmetic.",
+        re.compile(
+            r"\t\tDWORD dwResColor = dwPColor;\n\t\t__asm\n\t\t\{.*?movd dwResColor, mm0\n\t\t\}\n",
+            re.DOTALL),
+        """		DWORD dwResColor = dwPColor;
+		{
+			// [android] was MMX.  Lane-exact transcription of the instruction
+			// sequence (verified bit-for-bit against an emulation of the asm):
+			//   ebx = replicate(alpha7) in b,g,r, alpha lane 0x7f
+			//   m0 = unpack(color) with 0xff low bytes, >>1 ;  m1 = same for pcolor
+			//   m0 = pmulhw(m0, m1) ; m0 = pmulhw(m0, unpack(ebx)) ; >>5 ; packuswb
+			const unsigned int nA7 = dwColor >> 25;
+			const unsigned int nMask = ( nA7 | ( nA7 << 8 ) | ( nA7 << 16 ) ) | 0x7f000000u;
+			unsigned int nOut = 0;
+			for ( int lane = 0; lane < 4; ++lane )
+			{
+				const unsigned int c = ( dwColor >> ( lane * 8 ) ) & 0xff;
+				const unsigned int p = ( dwPColor >> ( lane * 8 ) ) & 0xff;
+				const unsigned int m = ( nMask >> ( lane * 8 ) ) & 0xff;
+				const int m0 = (int)( ( ( c << 8 ) | 0xff ) >> 1 );          // punpcklbw with 0xffff, psrlw 1
+				const int m1 = (int)( ( ( p << 8 ) | 0xff ) >> 1 );
+				const int m6 = (int)( ( ( m << 8 ) | 0xff ) );               // punpcklbw with 0xffff
+				int v = (int)(short)( ( (short)m0 * (short)m1 ) >> 16 );     // pmulhw
+				v = (int)(short)( ( (short)v * (short)m6 ) >> 16 );          // pmulhw
+				v = ( (unsigned short)v ) >> 5;                              // psrlw 5
+				if ( v > 255 ) v = 255;                                      // packuswb
+				nOut |= (unsigned int)v << ( lane * 8 );
+			}
+			dwResColor = nOut;
+		}
+""",
+    ),
+]
+
+#  2DSceneSW.cpp -- masked alpha blend, from Nival's own commented C++:
+#      dst.c = color.c + ( ( dst.c * ( 256 - a ) ) >> 8 )
+RULES += [
+    (
+        "Main/2DSceneSW.cpp",
+        "MMX 'over' blend -> the C++ Nival left in the adjacent comment.",
+        re.compile(
+            r"\t\t\t\t_asm\n\t\t\t\t\{\n\t\t\t\t\tpxor mm2, mm2\n\t\t\t\t\}\n"
+            r"\t\t\t\tfor \( ; pDst < pFinish; \+\+pDst \)\n\t\t\t\t\{\n"
+            r"\t\t\t\t\tDWORD color = tex\.Fetch\(\)\.color;\n"
+            r"\t\t\t\t\t__asm\n\t\t\t\t\t\{.*?\t\t\t\t\t\}\n"
+            r"(.*?)\t\t\t\t\}\n\t\t\t\t__asm emms\n",
+            re.DOTALL),
+        """				for ( ; pDst < pFinish; ++pDst )
+				{
+					// [android] was MMX; this is the C++ from the comment that followed it.
+					const NGfx::SPixel8888 &color = tex.Fetch();
+					NGfx::SPixel8888 &dst = *pDst;
+					const int a = color.a;
+					dst.r = (unsigned char)( color.r + ( ( dst.r * ( 256 - a ) ) >> 8 ) );
+					dst.g = (unsigned char)( color.g + ( ( dst.g * ( 256 - a ) ) >> 8 ) );
+					dst.b = (unsigned char)( color.b + ( ( dst.b * ( 256 - a ) ) >> 8 ) );
+					dst.a = (unsigned char)( color.a + ( ( dst.a * ( 256 - a ) ) >> 8 ) );
+				}
+""",
+    ),
+]
+
+#  SWTexture.cpp -- bilinear resample with 0.15 fixed-point weights.  The asm:
+#  unpack four source pixels to 16-bit, halve, lerp horizontally by nXMul,
+#  then vertically by nYMul/nYMul1, add a rounding constant, >>5, pack.
+RULES += [
+    (
+        "Main/SWTexture.cpp",
+        "MMX bilinear resample -> the same fixed-point lerp per channel.",
+        re.compile(
+            r"\t\t__asm\n\t\t\{\n\t\t\tmovd mm4, nYMul\n.*?\t\t\}\n"
+            r"\t\tfor \( int x = 0; x < nXSize; \+\+x \)\n\t\t\{\n"
+            r"\t\t\tint nXMul = \( nUPos & 0x7fff \);\n"
+            r"\t\t\tNGfx::SPixel8888 \*pSrc = &pPictureSrc\[nUPos>>15\];\n"
+            r"\t\t\t__asm\n\t\t\t\{.*?\t\t\t\}\n",
+            re.DOTALL),
+        """		for ( int x = 0; x < nXSize; ++x )
+		{
+			int nXMul = ( nUPos & 0x7fff );
+			NGfx::SPixel8888 *pSrc = &pPictureSrc[nUPos>>15];
+			{
+				// [android] was MMX.  Bilinear lerp of the 2x2 block at pSrc with
+				// 0.15 fixed-point weights, same shifts as the asm: halve to 7-bit
+				// headroom, lerp horizontally, lerp vertically, +16 round, >>5.
+				const unsigned char *p00 = (const unsigned char*)pSrc;
+				const unsigned char *p01 = p00 + 4;
+				const unsigned char *p10 = p00 + nNextY;
+				const unsigned char *p11 = p10 + 4;
+				unsigned char *pOut = (unsigned char*)pDst;
+				for ( int c = 0; c < 4; ++c )
+				{
+					int a = ( p00[c] << 8 ) >> 1, b = ( p01[c] << 8 ) >> 1;   // punpcklbw + psrlw 1
+					int d = ( p10[c] << 8 ) >> 1, e = ( p11[c] << 8 ) >> 1;
+					int top = ( a >> 1 ) + ( ( ( b - a ) * nXMul ) >> 16 );  // psubw/psrlw/pmulhw/paddw
+					int bot = ( d >> 1 ) + ( ( ( e - d ) * nXMul ) >> 16 );
+					int v = ( ( top * nYMul1 ) >> 16 ) + ( ( bot * nYMul ) >> 16 );
+					v = ( v + 0x10 ) >> 5;
+					pOut[c] = (unsigned char)( v > 255 ? 255 : ( v < 0 ? 0 : v ) );
+				}
+			}
+""",
+    ),
+    (
+        "Main/SWTexture.cpp",
+        "The trailing `_asm emms` and the now-unused MMX rounding constant.",
+        re.compile(r"\t_asm emms\n"),
+        "",
+    ),
 ]
 
 

@@ -14,9 +14,9 @@ not as a summary of what happened.
         MiscDll       ████████████████░░░░  builds; console vars untested
         DBFormat      ████████████████░░░░  builds and runs; blocked on the *data* (see below)
         Image         ████████████████████  ported; DXT1/3/5 software decoder in platform/
-        Main          ░░░░░░░░░░░░░░░░░░░░  154k lines: renderer, scene, AI, UI, game
-        Input         ░░░░░░░░░░░░░░░░░░░░  DirectInput -> touch; replace, do not wrap
-        FModSound     ░░░░░░░░░░░░░░░░░░░░  FMOD 3 -> Oboe/OpenSL; replace
+        Main          ███████████████████░  264/269 files compile; the 5 left are the D3D9 backend
+        Input         ████░░░░░░░░░░░░░░░░  headers staged; Input.h is the seam for touch
+        FModSound     ████████░░░░░░░░░░░░  NFMSound implemented as a silent null back end
 ```
 
 ## The order the remaining work should happen in
@@ -67,37 +67,69 @@ and is not part of the runtime. `platform/dxt_decode.cpp` decodes DXT1/3/5 in
 software for GPUs without `GL_EXT_texture_compression_s3tc` and for the harness,
 which checks decoded mean colour against the header's `dwAverageColor`.
 
-### 3. The renderer — `Main`'s `Gfx*` files
+### 3. `Main` — compiles, except the D3D9 backend
 
-This is the large piece, but it is better contained than the line count suggests.
-Direct3D types appear in only a handful of files (`Gfx.cpp`, `GfxInternal.h`,
-`GfxBuffers.cpp`, `GfxShaders.cpp`, `GGeometryUtil.cpp`); the rest of the engine
-talks to the `Gfx.h`/`GScene.h` abstraction above them. The shape of the work:
+264 of the 269 files Main.vcproj builds now compile for arm64 (and on the
+host). Getting there was almost entirely a matter of MSVC 7 leniencies handled
+once, as mechanical passes or rules in `prepare_sources.py` — see "Traps" below
+for the list. Every remaining piece of x86 inline assembly is gone: the MMX
+skinning in `GCombiner.cpp` (verified against float within 0.01), the particle
+colour modulate (bit-exact against an emulation of the instruction sequence),
+the bilinear resample and the 2D blend in the software paths, and the MMX AABB
+accumulator.
 
-* implement the `Gfx.h` interface on GLES 3.0 instead of D3D9
-* vertex/index buffers map onto GLES buffer objects fairly directly
-  (`GfxBuffers.cpp` is already an allocator over device buffers)
-* the shader layer (`GfxShaders.cpp`, `GfxShadersDescr.h`) is the hard part: it
-  compiles D3D vertex/pixel shader assembly. Expect to hand-write GLSL for the
-  handful of material paths the game actually uses rather than translating
-* fixed-function state (`GRenderModes.h`) becomes explicit GL state
-* five `__asm` blocks remain in `Main` (`Bound.h`, `SWTexture.cpp`,
-  `2DSceneSW.cpp`, `GSceneParticles.h`) — the software-renderer ones can go away
-  entirely, the bounding-volume one needs a scalar rewrite
+The five files that do not compile are exactly the Direct3D 9 backend:
+`Gfx.cpp`, `GfxBuffers.cpp`, `GfxRender.cpp`, `GfxEffects.cpp`, and the
+`GfxShadersDescr.h` include chain (plus `GGeometryUtil.cpp`, which touches
+`IDirect3D` types). Together with `GfxInternal.h`/`GfxBuffersInternal.h` that is
+about **6,500 lines**, and the whole D3D9 surface they use is **~40
+`IDirect3DDevice9` methods**:
 
-The EGL context the boot console already creates (`platform/android_main.cpp`) is
-where that backend should render.
+```
+SetSamplerState ×21  Clear ×9  SetTexture ×6  SetRenderState ×5  SetIndices ×4
+DrawIndexedPrimitive ×4  Begin/EndScene  SetVertex/PixelShader  SetVertexDeclaration
+SetStreamSource  CreateTexture  CreateDepthStencilSurface  CopyRects  SetRenderTarget
+Set*ShaderConstantF  SetTransform  SetMaterial/SetLight/LightEnable  SetGammaRamp
+SetFVF  Reset  Present  GetFrontBufferData  DrawPrimitive  CreateVertexShader
+CreateVertexDeclaration  CreateQuery  UpdateSurface  ValidateDevice
+```
+
+That is the next chapter of the port, and it is well bounded. The shape:
+
+* keep `Gfx.h`/`GScene.h` (the interface the other 260 files talk to) exactly
+  as is, and rewrite the five files behind it on **GLES 3.0**
+* `GfxBuffers.cpp` is already an allocator over device vertex/index buffers —
+  maps onto GL buffer objects almost 1:1
+* `GfxShaders.cpp` compiles D3D9 vertex/pixel shader *assembly*
+  (`GfxShadersDescr.h`). Hand-write GLSL for the handful of material paths the
+  game actually uses rather than translating the assembler
+* fixed-function state (`SetRenderState`, `SetTextureStageState`,
+  `SetMaterial`/`SetLight`) becomes explicit GL state and uniforms
+* the EGL context the boot console creates (`platform/android_main.cpp`) is the
+  surface to render into; `platform/dxt_decode.cpp` covers devices without
+  `GL_EXT_texture_compression_s3tc`
+
+Once those five files build, Main links, and `Game/Main.cpp`'s WinMain
+sequence (`AddResourceDir`, `game.db`, `InitApplication`, the frame loop) can be
+driven from `android_main`.
 
 ### 4. Input, audio, video
 
-* **Input**: `Input/Input.cpp` is DirectInput and should be deleted, not ported.
-  `Input/Bind.cpp` — the action-binding layer above it — is portable and worth
-  keeping; feed it Android touch/key events. A turn-based tactical game maps
-  reasonably onto touch, but the port will need a camera-control scheme of its own.
-* **Audio**: `FModSound` wraps FMOD 3.x, whose licence is not included. Replace
-  the wrapper with Oboe or OpenSL ES behind the same `FMSound.h` interface.
+* **Input**: `Input/Input.h` is staged and is the seam — a clean, DirectInput-free
+  interface (`InitInput`, `PumpMessages`, `GetMessage(SMessage*)`,
+  `GetControlID`). `Input.cpp` (DirectInput) is never built; the Android layer
+  implements `Input.h` from touch/key events. `Bind.cpp` (action mapping) is
+  portable and sits on top. A turn-based tactical game maps reasonably onto
+  touch, but the port will need a camera-control scheme of its own.
+* **Audio**: `FModSound/FMsound.h` is staged and `platform/audio_null.cpp`
+  implements the whole `NFMSound` interface silently — every call succeeds and
+  hands back a live handle, so the game runs without sound. The real back end
+  (Oboe, or OpenSL ES) replaces that file behind the same functions.
 * **Video**: Bink is licensed and absent. Cutscenes should be skipped or the
   container replaced; nothing else depends on it.
+* **LifeStudio:HEAD** (facial animation for dialogue heads, proprietary) is
+  stubbed under `compat/include/thirdparty-stubs/`: heads render in their neutral
+  pose. Reviving it means licensing the SDK or writing a macro-muscle deformer.
 
 ### 5. The game layer
 

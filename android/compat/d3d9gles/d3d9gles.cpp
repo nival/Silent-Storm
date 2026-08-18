@@ -30,6 +30,7 @@
 bool   DxtDecode( int nDxtVersion, const uint8_t *pIn, size_t nInSize, int nWidth, int nHeight, uint8_t *pOut );
 size_t DxtLevelSize( int nDxtVersion, int nWidth, int nHeight );
 
+static A5D3DFrameStats g_stats;
 #define D3DGL_LOG( ... )  a5_log( A5_PRIORITY_INFO,  __VA_ARGS__ )
 #define D3DGL_WARN( ... ) a5_log( A5_PRIORITY_WARN,  __VA_ARGS__ )
 #define D3DGL_ERR( ... )  a5_log( A5_PRIORITY_ERROR, __VA_ARGS__ )
@@ -917,6 +918,7 @@ public:
     CSurface   *pBackDepth;         /* its depth/stencil renderbuffer */
     bool        bNeedReset;
     int         nLastSurfaceAlive;
+    DWORD       dwFVF = 0;
 
     SRenderStates rs;
     bool          bStatesDirty;
@@ -1087,20 +1089,37 @@ public:
         if ( !bStatesDirty )
             return;
         bStatesDirty = false;
+        /* A5_D3D_FORCE=nocull,nodepth,noblend -- bring-up experiments */
+        static int nForce = -1;
+        if ( nForce < 0 )
+        {
+            const char *e = getenv( "A5_D3D_FORCE" );
+            nForce = 0;
+            if ( e && strstr( e, "nocull" ) ) nForce |= 1;
+            if ( e && strstr( e, "nodepth" ) ) nForce |= 2;
+            if ( e && strstr( e, "noblend" ) ) nForce |= 4;
+        }
+        if ( nForce & 2 ) rs.zEnable = FALSE;
+        if ( nForce & 4 ) rs.alphaBlend = FALSE;
+        if ( nForce & 1 ) rs.cull = D3DCULL_NONE;
         if ( rs.zEnable ) glEnable( GL_DEPTH_TEST ); else glDisable( GL_DEPTH_TEST );
         glDepthMask( rs.zWrite ? GL_TRUE : GL_FALSE );
         glDepthFunc( GLCompare( rs.zFunc ) );
         if ( rs.alphaBlend ) glEnable( GL_BLEND ); else glDisable( GL_BLEND );
         glBlendFunc( GLBlend( rs.srcBlend ), GLBlend( rs.dstBlend ) );
-        /*  Culling.  Every draw goes to a y-flipped framebuffer (see d3d9.h),
-         *  which turns D3D-clockwise (measured y-down) into GL-clockwise. */
+        /*  Culling.  D3D measures the winding in projected space, y up --
+         *  same as GL window space -- so D3DCULL_CW would be glFrontFace(GL_CCW)
+         *  + cull back.  Every draw here goes to a y-flipped framebuffer (see
+         *  d3d9.h), which mirrors the winding, hence the opposite.  (Verified
+         *  on the engine's 2D quads: drawn with D3DCULL_CW, visible on Windows,
+         *  culled here until this was swapped.) */
         if ( rs.cull == D3DCULL_NONE )
             glDisable( GL_CULL_FACE );
         else
         {
             glEnable( GL_CULL_FACE );
             glCullFace( GL_BACK );
-            glFrontFace( rs.cull == D3DCULL_CW ? GL_CCW : GL_CW );
+            glFrontFace( rs.cull == D3DCULL_CW ? GL_CW : GL_CCW );
         }
         if ( rs.stencilEnable ) glEnable( GL_STENCIL_TEST ); else glDisable( GL_STENCIL_TEST );
         glStencilFunc( GLCompare( rs.stencilFunc ), (GLint)rs.stencilRef, rs.stencilMask );
@@ -1252,7 +1271,15 @@ public:
     {
         SProgram *p = GetProgram( CurrentCubeMask() );
         if ( !p || !p->nGL )
+        {
+            ++g_stats.nDrawsNoProgram;
+            if ( g_stats.nDrawsNoProgram <= 8 )
+                D3DGL_WARN( "d3d9gles: draw without a usable program (vs %s, ps %s, fvf 0x%x)",
+                            pVS ? ( pVS->pEntry ? pVS->pEntry->name : "unknown-asm" ) : "none",
+                            pPS ? ( pPS->pEntry ? pPS->pEntry->name : "unknown-asm" ) : "none",
+                            (unsigned)dwFVF );
             return;
+        }
         if ( p != pCurrentProgram )
         {
             glUseProgram( p->nGL );
@@ -1340,6 +1367,21 @@ public:
         ApplyProgramAndUniforms();
         ApplyVertexLayout( nBaseVertex );
     }
+    /*  A5_D3D_TRACE=<n>: log every draw of the first n Present()s. */
+    void TraceDraw( const char *pszKind, D3DPRIMITIVETYPE type, UINT nPrims, UINT nStart )
+    {
+        static int nTraceFrames = -1;
+        if ( nTraceFrames < 0 ) { const char *e = getenv( "A5_D3D_TRACE" ); nTraceFrames = e ? atoi( e ) : 0; }
+        if ( g_stats.nPresents >= nTraceFrames )
+            return;
+        D3DGL_LOG( "d3d9gles: [f%d] %s type %d prims %u start %u | vs %s ps %s | rt %s %dx%d z %s | blend %d(%d,%d) ztest %d zwrite %d cull %d alphatest %d | tex0 %s | c10 %.4f %.4f %.4f %.4f",
+                   g_stats.nPresents, pszKind, (int)type, nPrims, nStart,
+                   pVS && pVS->pEntry ? pVS->pEntry->name : "?", pPS && pPS->pEntry ? pPS->pEntry->name : "?",
+                   pRT == pBackColorSurface ? "backbuffer" : ( pRT ? "texture" : "none" ), nRTWidth, nRTHeight, pDS ? "yes" : "no",
+                   (int)rs.alphaBlend, (int)rs.srcBlend, (int)rs.dstBlend, (int)rs.zEnable, (int)rs.zWrite, (int)rs.cull, (int)rs.alphaTest,
+                   textures[ 0 ] ? "set" : "none",
+                   vsConst[ 10 ][ 0 ], vsConst[ 10 ][ 1 ], vsConst[ 10 ][ 2 ], vsConst[ 10 ][ 3 ] );
+    }
 
     /* ---- IDirect3DDevice9 --------------------------------------------- */
     virtual HRESULT TestCooperativeLevel()
@@ -1380,6 +1422,29 @@ public:
 
         GLuint src = GetFBO( pBackColorSurface, pBackDepth );
         glBindFramebuffer( GL_READ_FRAMEBUFFER, src );
+        {
+            /* A5_D3D_TRACE: histogram of the back buffer so "nothing visible" can be
+             * told apart from "drawn but not shown" */
+            static int nTraceFrames = -1;
+            if ( nTraceFrames < 0 ) { const char *e = getenv( "A5_D3D_TRACE" ); nTraceFrames = e ? atoi( e ) : 0; }
+            if ( g_stats.nPresents < nTraceFrames && ( g_stats.nPresents % 20 ) == 0 )
+            {
+                const int w = pp.BackBufferWidth, h = pp.BackBufferHeight;
+                std::vector< unsigned char > px( (size_t)w * h * 4 );
+                glReadPixels( 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, &px[ 0 ] );
+                std::map< unsigned, int > hist;
+                for ( int i = 0; i < w * h; i += 7 )
+                    hist[ ( px[ i * 4 ] << 16 ) | ( px[ i * 4 + 1 ] << 8 ) | px[ i * 4 + 2 ] ]++;
+                std::string sz;
+                int nShown = 0;
+                for ( std::map< unsigned, int >::iterator it = hist.begin(); it != hist.end() && nShown < 6; ++it, ++nShown )
+                {
+                    char b[ 48 ]; snprintf( b, sizeof( b ), " %06x:%d", it->first, it->second ); sz += b;
+                }
+                D3DGL_LOG( "d3d9gles: [f%d] back buffer %dx%d: %d distinct colours (of %d samples):%s%s",
+                           g_stats.nPresents, w, h, (int)hist.size(), w * h / 7, sz.c_str(), hist.size() > 6 ? " ..." : "" );
+            }
+        }
         glBindFramebuffer( GL_DRAW_FRAMEBUFFER, 0 );
         glDisable( GL_SCISSOR_TEST );
         glColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
@@ -1392,6 +1457,7 @@ public:
                            dx, dy + dh, dx + dw, dy, GL_COLOR_BUFFER_BIT, GL_LINEAR );
         if ( g_hooks.present )
             g_hooks.present();
+        ++g_stats.nPresents;
         bFramebufferDirty = true;
         bStatesDirty = true;
         return D3D_OK;
@@ -1602,6 +1668,7 @@ public:
     }
     virtual HRESULT Clear( DWORD, const D3DRECT *, DWORD Flags, DWORD Color, float Z, DWORD Stencil )
     {
+        ++g_stats.nClears;
         ApplyFramebuffer();
         GLbitfield mask = 0;
         if ( Flags & D3DCLEAR_TARGET )
@@ -1690,7 +1757,7 @@ public:
     virtual HRESULT SetLight( DWORD, const D3DLIGHT9 * ) { return D3D_OK; }
     virtual HRESULT LightEnable( DWORD, BOOL ) { return D3D_OK; }
     virtual HRESULT SetSoftwareVertexProcessing( BOOL ) { return D3D_OK; }
-    virtual HRESULT SetFVF( DWORD ) { return D3D_OK; }
+    virtual HRESULT SetFVF( DWORD dw ) { dwFVF = dw; return D3D_OK; }
 
     virtual HRESULT SetVertexShader( IDirect3DVertexShader9 *pShader )
     {
@@ -1756,7 +1823,9 @@ public:
     }
     virtual HRESULT DrawPrimitive( D3DPRIMITIVETYPE PrimitiveType, UINT StartVertex, UINT PrimitiveCount )
     {
+        ++g_stats.nDraws;
         PrepareDraw( 0 );
+        TraceDraw( "DrawPrimitive", PrimitiveType, PrimitiveCount, StartVertex );
         GLenum mode; GLsizei count;
         switch ( PrimitiveType )
         {
@@ -1772,7 +1841,9 @@ public:
     {
         if ( !pIB )
             return D3DERR_INVALIDCALL;
+        ++g_stats.nDraws;
         PrepareDraw( BaseVertexIndex );
+        TraceDraw( "DrawIndexedPrimitive", PrimitiveType, PrimitiveCount, StartIndex );
         glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, pIB->buf.nGL );
         GLenum mode; GLsizei count;
         switch ( PrimitiveType )
@@ -1945,6 +2016,17 @@ public:
 };
 
 }  // namespace
+
+void A5D3DGetFrameStats( A5D3DFrameStats *pOut, int bReset )
+{
+    *pOut = g_stats;
+    if ( bReset )
+    {
+        const int nPresents = g_stats.nPresents;
+        memset( &g_stats, 0, sizeof( g_stats ) );
+        g_stats.nPresents = nPresents;
+    }
+}
 
 IDirect3D9 *Direct3DCreate9( UINT )
 {

@@ -502,6 +502,17 @@ struct A5D3DPlatformHooks
 };
 void A5D3DSetPlatformHooks( const A5D3DPlatformHooks *pHooks );
 
+/*  Diagnostics: what the device did since the last reset of the counters. */
+struct A5D3DFrameStats
+{
+    int nDraws;            /* Draw*Primitive calls */
+    int nDrawsNoProgram;   /* ...of which had no usable vs/ps pair (skipped) */
+    int nClears;
+    int nGLErrors;
+    int nPresents;         /* never reset: frames since device creation */
+};
+void A5D3DGetFrameStats( A5D3DFrameStats *pOut, int bReset );
+
 /*  Maps a window pixel to a back-buffer pixel through the Present scaling, for
  *  the input layer.  Returns 0 if the point falls in the letterbox. */
 int  A5D3DWindowToBackBuffer( float fWindowX, float fWindowY, float *pfBackX, float *pfBackY );

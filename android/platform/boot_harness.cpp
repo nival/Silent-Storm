@@ -26,6 +26,7 @@
 #include "Script/Script.h"
 #include "ADOImport/BasicDB.h"
 #include "DBFormat/DataFormat.h"
+#include "DBFormat/DataInterface.h"
 #include "Main/GPixelFormat.h"
 #include "Image/ImageMMP.h"
 #include "dxt_decode.h"
@@ -506,6 +507,39 @@ void CheckGameDatabase( CReport *pReport, const SDataMountResult &mount )
     }
     else
         pReport->Add( BOOT_FAIL, 0, "GetTable<CString>() returned null - type registry broken" );
+
+    /*  Cross-references and the retail importer's per-row Import(): the main
+     *  menu is UI container 347 (iMainMenu.cpp), and its controls attach
+     *  themselves to it in CUIControl::Import() through the UIContainerID
+     *  column.  The menu code then looks up controls by their IDText. */
+    {
+        NDb::CUIContainer *pMenu = NDb::GetUIContainer( 347 );
+        if ( !pMenu )
+            pReport->Add( BOOT_FAIL, 0, "UI container 347 (main menu) not in the database" );
+        else
+        {
+            const char *NEEDED[] = { "credits", "options", "campaign", "load", "quit", "clientview" };
+            int nFound = 0;
+            std::string szFirst;
+            for ( size_t i = 0; i < sizeof( NEEDED ) / sizeof( NEEDED[ 0 ] ); ++i )
+                for ( size_t c = 0; c < pMenu->controls.size(); ++c )
+                    if ( pMenu->controls[ c ] && pMenu->controls[ c ]->szID == NEEDED[ i ] ) { ++nFound; break; }
+            for ( size_t c = 0; c < pMenu->controls.size() && szFirst.size() < 60; ++c )
+                if ( pMenu->controls[ c ] ) { if ( !szFirst.empty() ) szFirst += ","; szFirst += pMenu->controls[ c ]->szID; }
+            if ( nFound == 6 )
+                pReport->Add( BOOT_OK, 0, "UI container 347 (main menu): %dx%d, %d controls, all 6 the menu needs by name",
+                              pMenu->nWidth, pMenu->nHeight, (int)pMenu->controls.size() );
+            else if ( pMenu->controls.empty() )
+                pReport->Add( BOOT_FAIL, 0, "UI container 347 (main menu): %dx%d but no controls attached - UIControls import broken",
+                              pMenu->nWidth, pMenu->nHeight );
+            else
+                /* the retail data's menu is laid out differently from what this
+                 * source's iMainMenu.cpp expects (view/logo/lines/version instead
+                 * of named buttons) - a data-vs-source difference, see PORTING.md */
+                pReport->Add( BOOT_WARN, 0, "UI container 347 (main menu): %dx%d, %d controls (%s); %d/6 of the names iMainMenu.cpp expects - retail UI layout differs from this source",
+                              pMenu->nWidth, pMenu->nHeight, (int)pMenu->controls.size(), szFirst.c_str(), nFound );
+        }
+    }
 }
 
 /*  Textures.  Every texture the game ships is an MMP container holding DXT

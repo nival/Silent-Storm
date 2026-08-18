@@ -255,6 +255,24 @@ void NDatabase::Import()
                 szCols += "ibfs"[ pRT->columns[ c ].nType & 3 ];
             }
             a5_log( A5_PRIORITY_INFO, "game.db: table 0x%X %s: %d rows, cols %s", descrs[ i ].nTableID, descrs[ i ].szTable.c_str(), pRT->RowCount(), szCols.c_str() );
+            /* A5_DB_DUMP_ROWS=<table name> also prints that table's rows */
+            const char *pszRows = getenv( "A5_DB_DUMP_ROWS" );
+            if ( pszRows && descrs[ i ].szTable == pszRows )
+            {
+                for ( table.MoveFirst(); !table.IsEof(); table.MoveNext() )
+                {
+                    std::string szRow;
+                    for ( std::map< std::string, std::pair< int, int > >::const_iterator c = table.columns.begin(); c != table.columns.end(); ++c )
+                    {
+                        if ( !szRow.empty() ) szRow += " ";
+                        szRow += c->first + "=";
+                        if ( c->second.first == 3 ) szRow += "\"" + SCursor::Narrow( table.GetString( c->first.c_str() ) ) + "\"";
+                        else if ( c->second.first == 2 ) { char b[ 32 ]; snprintf( b, 32, "%g", table.GetFloat( c->first.c_str() ) ); szRow += b; }
+                        else { char b[ 32 ]; snprintf( b, 32, "%d", table.GetInt( c->first.c_str() ) ); szRow += b; }
+                    }
+                    a5_log( A5_PRIORITY_INFO, "  row %d: %s", table.nRow, szRow.c_str() );
+                }
+            }
         }
         GetTable( descrs[ i ].nTableID )->PreCreate( descrs[ i ].nTableID );
         nRecords += pRT->RowCount();

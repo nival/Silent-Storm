@@ -179,6 +179,9 @@ long      a5_u16_strtol( const char16_t *psz, char16_t **ppEnd, int nRadix );
  *  items assigned (0, 1 or 2), like scanf. */
 int       a5_u16_scan_int_and_suffix( const char16_t *psz, int *pnValue, char16_t *pSuffix, int nMaxSuffix );
 size_t    a5_u16len( const char16_t *psz );
+/*  UTF-16 -> UTF-8 into pDest (nMax bytes, always NUL-terminated); returns pDest.
+ *  For logging text through a narrow printf ("%S" meant wchar_t on MSVC). */
+char     *a5_u16_to_utf8( const char16_t *pSrc, char *pDest, size_t nMax );
 char16_t *a5_u16cpy( char16_t *pDest, const char16_t *pSrc );
 char16_t *a5_u16cat( char16_t *pDest, const char16_t *pSrc );
 int       a5_u16cmp( const char16_t *a, const char16_t *b );

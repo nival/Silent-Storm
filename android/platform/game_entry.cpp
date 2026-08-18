@@ -25,6 +25,7 @@
 namespace
 {
 bool g_bStarted = false;
+bool g_bStartMainMenu = false;
 }
 
 extern "C" int a5_game_init( const char **ppszError )
@@ -68,8 +69,20 @@ extern "C" int a5_game_init( const char **ppszError )
 
     NGlobal::LoadConfig( ".\\cfg\\autoexec.cfg" );
 
-    /* the original parsed lpCmdLine here; on Android there is none */
+    /* the original parsed lpCmdLine here; on Android there is none.  The
+     * shipped start.cfg (Versions/Current/) plays the intro sequence (Bink
+     * video, absent) and has "mainmenu" commented out; when the data root has
+     * no start.cfg we go straight to the main menu instead. */
     string szCfg( "start.cfg" );
+    {
+        CFileStream probe;
+        if ( !probe.TryOpenRead( szCfg.c_str() ) )
+        {
+            a5_log( A5_PRIORITY_INFO, "game: no start.cfg in the data root - going to the main menu" );
+            szCfg.clear();
+            g_bStartMainMenu = true;
+        }
+    }
 
     if ( !NGScene::SetModeFromConfig() )
     {
@@ -92,6 +105,12 @@ extern "C" int a5_game_step( int bActive )
     if ( !g_bStarted )
         return 0;
     NInput::PumpMessages( bActive != 0 );
+    if ( g_bStartMainMenu && NMainLoop::GetInterfaceStackDepth() > 0 )
+    {
+        /* the intermission interface exists now; "mainmenu" is its command */
+        g_bStartMainMenu = false;
+        NGlobal::ProcessCommand( u"mainmenu" );
+    }
     return NMainLoop::StepApp( bActive != 0, bActive != 0 ) ? 1 : 0;
 }
 

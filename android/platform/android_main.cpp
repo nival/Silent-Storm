@@ -15,6 +15,9 @@
 #include <android/window.h>
 #include <jni.h>
 #include <time.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "boot_harness.h"
 #include "gles_present.h"
@@ -381,6 +384,23 @@ void android_main( android_app *pApp )
     state.szExternalFilesDir = GetActivityDirectory( pApp, "getExternalFilesDir", true );
     state.szInternalFilesDir = GetActivityDirectory( pApp, "getFilesDir", false );
     LOGI( "external files dir: %s", state.szExternalFilesDir.c_str() );
+    /*  Debug switches: <external files>/env.txt, one NAME=VALUE per line, goes
+     *  into the environment (A5_D3D_TRACE, A5_DB_DUMP, ...). */
+    if ( FILE *pEnv = fopen( ( state.szExternalFilesDir + "/env.txt" ).c_str(), "r" ) )
+    {
+        char szLine[ 512 ];
+        while ( fgets( szLine, sizeof( szLine ), pEnv ) )
+        {
+            char *pEq = strchr( szLine, '=' );
+            if ( !pEq || szLine[ 0 ] == '#' ) continue;
+            *pEq = 0;
+            char *pVal = pEq + 1;
+            pVal[ strcspn( pVal, "\r\n" ) ] = 0;
+            setenv( szLine, pVal, 1 );
+            LOGI( "env.txt: %s=%s", szLine, pVal );
+        }
+        fclose( pEnv );
+    }
     LOGI( "internal files dir: %s", state.szInternalFilesDir.c_str() );
 
     while ( true )
@@ -420,7 +440,10 @@ void android_main( android_app *pApp )
                     if ( fNow - fLastLog > 5.0 )
                     {
                         fLastLog = fNow;
-                        LOGI( "game: %d steps, %d presents, interface depth %d", nSteps, g_nPresents, a5_game_interface_depth() );
+                        A5D3DFrameStats st;
+                        A5D3DGetFrameStats( &st, 1 );
+                        LOGI( "game: %d steps, %d presents, interface depth %d; since last: %d draws (%d without program), %d clears",
+                              nSteps, g_nPresents, a5_game_interface_depth(), st.nDraws, st.nDrawsNoProgram, st.nClears );
                     }
                 }
                 if ( !a5_game_step( 1 ) )

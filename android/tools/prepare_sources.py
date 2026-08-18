@@ -2716,6 +2716,19 @@ RULES += [
         re.compile(r"\(\s*CObjectBase\s*\*\s*\)\s*pContext\b"),
         "a5_cast_opaque<CObjectBase>( pContext )",
     ),
+    (
+        "MiscDll/LogStream.cpp",
+        "The in-game console echoes every line with DebugTrace( \"%S\" ) -- MSVC's "
+        "%S is a wchar_t (UTF-16) string; on Android %S means 32-bit wchar_t, so "
+        "the echo came out empty.  Convert to UTF-8 and log it as such, so the "
+        "console (command replies, script errors, 'file not found') shows in "
+        "logcat.",
+        """	DebugTrace( "%S\\n", sLine.szText.data() );""",
+        """	{	// [android] %S was MSVC's UTF-16; log the console line as UTF-8
+		char szUtf8[ 2048 ];
+		DebugTrace( "console: %s\\n", a5_u16_to_utf8( sLine.szText.c_str(), szUtf8, sizeof( szUtf8 ) ) );
+	}""",
+    ),
 ]
 
 

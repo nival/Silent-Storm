@@ -20,14 +20,25 @@ not as a summary of what happened.
         FModSound     ████████░░░░░░░░░░░░  NFMSound implemented as a silent null back end
 ```
 
-**On the Samsung Z Fold7 (2026-08-18):** the app boots, runs the boot harness
-(38 checks pass), loads `Complete/game.db` in ~0.5 s through the retail-format
-importer, initialises the renderer through the D3D9-on-GLES shim, and enters the
-game's main loop: `CInterMissionInterface` steps and presents at ~120 fps into a
-1024×768 virtual back buffer letterboxed on the 2184×1968 panel. What is on
-screen is the intermission's grey clear colour; the two open items at the head
-of the list below are getting the text/UI to draw and getting past the
-intermission into the main menu.
+**On the Samsung Z Fold7 (2026-08-18, end of day):** the app boots, runs the
+boot harness (38 checks pass), loads `Complete/game.db` in ~0.5 s through the
+retail-format importer, initialises the renderer through the D3D9-on-GLES shim,
+and — with no `start.cfg` in the data root — goes straight to the **main menu**,
+which draws: the Silent Storm logo, "Silent Storm ver. 1.1", the "Work in
+progress" string from the Strings table, and the cursor, at ~120 fps into a
+1024×768 virtual back buffer letterboxed on the 2184×1968 panel. Known wrong on
+that screen: the cursor draws with a wrong atlas region (a unit silhouette) and
+leaves a trail because nothing clears behind it — the retail data's menu is a 3D
+"clientview" this source's `iMainMenu.cpp` does not find in UI container 347
+(see the harness warning), so no scene is drawn behind the UI. Next: that
+mismatch (either drive the menu from what the retail container has, or draw the
+menu scene regardless), the cursor texture, then touch → menu navigation.
+
+Debug switches (in `<external files>/env.txt`, `NAME=VALUE` per line):
+`A5_D3D_TRACE=<frames>` logs every draw and a back-buffer histogram,
+`A5_D3D_FORCE=nocull,nodepth,noblend` overrides state, `A5_DB_DUMP=1` /
+`A5_DB_DUMP_ROWS=<table>` dump the database. The engine console is echoed to
+logcat as `console: ...`.
 
 ## The order the remaining work should happen in
 
@@ -107,9 +118,12 @@ constant-register map, the render-target model, the coordinate-system
 differences — is [RENDERER.md](RENDERER.md). In short:
 
 * framebuffer memory is always in D3D layout (row 0 at the top); every draw goes
-  into an FBO with a y-flip in the vertex shader (`posFixup`), which is why the
-  cull mode is inverted and `Present` is a flipped `glBlitFramebuffer` into the
-  EGL surface, letterboxed to the requested mode (1024×768 by default)
+  into an FBO with a y-flip in the vertex shader (`posFixup`), which mirrors the
+  winding — D3D measures it in projected space, y up, like GL — so `D3DCULL_CW`
+  becomes `glFrontFace(GL_CW)` + cull back (the *un*-mirrored mapping would be
+  `GL_CCW`; getting this backwards culled every 2D quad); `Present` is a flipped
+  `glBlitFramebuffer` into the EGL surface, letterboxed to the requested mode
+  (1024×768 by default)
 * the 155 D3D shader-assembly programs the engine embeds (`GfxShadersDescr.h`)
   are recovered by `tools/extract_shaders.py` and translated to GLSL ES 3.00 by
   `tools/d3dasm2glsl.py`; the runtime finds a program by the FNV-1a hash of the

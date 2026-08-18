@@ -233,6 +233,30 @@ extern "C" int WideCharToMultiByte( UINT nCodePage, DWORD, LPCWSTR pszWideChar,
 /* ------------------------------------------------------------------------- */
 /*  char16_t string functions                                                  */
 /* ------------------------------------------------------------------------- */
+extern "C" char *a5_u16_to_utf8( const char16_t *pSrc, char *pDest, size_t nMax )
+{
+    size_t o = 0;
+    if ( nMax == 0 ) return pDest;
+    for ( ; pSrc && *pSrc; ++pSrc )
+    {
+        unsigned c = *pSrc;
+        if ( c >= 0xD800 && c < 0xDC00 && pSrc[ 1 ] >= 0xDC00 && pSrc[ 1 ] < 0xE000 )
+        {
+            c = 0x10000 + ( ( c - 0xD800 ) << 10 ) + ( pSrc[ 1 ] - 0xDC00 );
+            ++pSrc;
+        }
+        char b[ 4 ]; size_t n;
+        if ( c < 0x80 )        { b[ 0 ] = (char)c; n = 1; }
+        else if ( c < 0x800 )  { b[ 0 ] = (char)( 0xC0 | ( c >> 6 ) ); b[ 1 ] = (char)( 0x80 | ( c & 0x3F ) ); n = 2; }
+        else if ( c < 0x10000 ){ b[ 0 ] = (char)( 0xE0 | ( c >> 12 ) ); b[ 1 ] = (char)( 0x80 | ( ( c >> 6 ) & 0x3F ) ); b[ 2 ] = (char)( 0x80 | ( c & 0x3F ) ); n = 3; }
+        else                   { b[ 0 ] = (char)( 0xF0 | ( c >> 18 ) ); b[ 1 ] = (char)( 0x80 | ( ( c >> 12 ) & 0x3F ) ); b[ 2 ] = (char)( 0x80 | ( ( c >> 6 ) & 0x3F ) ); b[ 3 ] = (char)( 0x80 | ( c & 0x3F ) ); n = 4; }
+        if ( o + n >= nMax ) break;
+        memcpy( pDest + o, b, n ); o += n;
+    }
+    pDest[ o ] = 0;
+    return pDest;
+}
+
 extern "C" size_t a5_u16len( const char16_t *psz )
 {
     size_t n = 0;

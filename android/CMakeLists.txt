@@ -9,7 +9,7 @@
 #  exports.  On Android everything links into a single .so, so those .def files
 #  and the __declspec(dllimport) markers simply fall away (externA5 -> extern).
 
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.24)
 project(silentstorm CXX C)
 
 #  C++14, not later: the engine uses std::ptr_fun and other binders that C++17
@@ -244,6 +244,8 @@ if(NOT ANDROID)
     )
     target_compile_options(silentstorm_hosttest PRIVATE ${ENGINE_COMPILE_OPTIONS})
     target_link_libraries(silentstorm_hosttest a5script a5dbformat a5image a5miscdll a5fileio a5misc a5compat)
+    set_property(TARGET silentstorm_hosttest PROPERTY LINK_LIBRARY_OVERRIDE
+        "WHOLE_ARCHIVE,a5script,a5dbformat,a5image,a5miscdll,a5fileio,a5misc")
     return()
 endif()
 
@@ -281,6 +283,10 @@ if(A5_BUILD_MAIN)
         ${PLATFORM_DIR}/input_android.cpp
         ${PLATFORM_DIR}/audio_null.cpp)
     target_compile_options(silentstorm PRIVATE ${ENGINE_COMPILE_OPTIONS})
+    #  Whole-archive: the engine registers classes, console commands and
+    #  database tables from static initialisers (START_REGISTER,
+    #  REGISTER_SAVELOAD_CLASS, REGISTER_DATABASE_CLASS) in objects nothing
+    #  else references -- a plain static-library link would drop them.
     target_link_libraries(silentstorm a5main)
     target_compile_definitions(silentstorm PRIVATE A5_HAVE_MAIN=1)
 endif()
@@ -290,6 +296,8 @@ target_link_libraries(silentstorm
     a5script a5dbformat a5image a5miscdll a5fileio a5misc a5compat
     android log EGL GLESv2
 )
+set_property(TARGET silentstorm PROPERTY LINK_LIBRARY_OVERRIDE
+    "WHOLE_ARCHIVE,a5main,a5script,a5dbformat,a5image,a5miscdll,a5fileio,a5misc")
 
 #  ANativeActivity_onCreate lives in native_app_glue and nothing in our own code
 #  references it, so the linker would garbage-collect it without this.

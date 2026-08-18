@@ -12,9 +12,9 @@ importer are verified against real game data on device. `Main` — the renderer,
 scene, AI, UI and game logic, 154k lines — compiles for arm64 in all 269 of its
 files; the Direct3D 9 backend runs on a D3D9-on-GLES 3.0 implementation
 (`compat/d3d9gles/`, all 155 engine shaders translated). On a Galaxy Z Fold7 the
-game loop runs at ~120 fps into a 1024×768 virtual back buffer; what it draws is
-still being brought up (the intermission screen's clear colour is there, the UI
-text is not yet). See [docs/PORTING.md](docs/PORTING.md) for the state of each
+main menu comes up — logo, version string, localised text, cursor — at
+~120 fps into a 1024×768 virtual back buffer; the menu's 3D scene and touch
+navigation are the next steps. See [docs/PORTING.md](docs/PORTING.md) for the state of each
 piece and what comes next.
 
 The app currently boots, mounts your game data, exercises those subsystems and

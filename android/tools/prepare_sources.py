@@ -2449,6 +2449,17 @@ RULES += [
     ),
 ]
 
+RULES += [
+    (
+        "Main/GfxEffects.cpp",
+        "GfxEffects.cpp includes <D3D9.h> but uses nothing from it (it only "
+        "talks to CRenderContext); drop the include so it builds against the "
+        "GLES backend.",
+        '#include "StdAfx.h"\n#include <D3D9.h>\n#include "GfxEffects.h"',
+        '#include "StdAfx.h"\n// [android] <D3D9.h> include removed: nothing from it is used here\n#include "GfxEffects.h"',
+    ),
+]
+
 
 def apply_rules(text, rel_path, applied, unmatched):
     """Apply every rule whose file pattern matches.

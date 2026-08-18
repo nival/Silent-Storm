@@ -17,6 +17,7 @@ s = re.sub(r"^uniform vec4 vc\[96\];", "layout(location=0) uniform vec4 vc[96];"
 s = re.sub(r"^uniform vec4 posFixup;", "layout(location=96) uniform vec4 posFixup;", s, flags=re.M)
 s = re.sub(r"^uniform vec4 pc\[8\];", "layout(location=0) uniform vec4 pc[8];", s, flags=re.M)
 s = re.sub(r"^uniform float alphaRef;", "layout(location=8) uniform float alphaRef;", s, flags=re.M)
+s = re.sub(r"^uniform int alphaFunc;", "layout(location=9) uniform int alphaFunc;", s, flags=re.M)
 s = re.sub(r"^uniform sampler(\w+) s(\d);", r"layout(binding=\2) uniform sampler\1 s\2;", s, flags=re.M)
 s = re.sub(r"^out vec4 fragColor;", "layout(location=0) out vec4 fragColor;", s, flags=re.M)
 for i, n in enumerate(["vD0", "vD1", "vT0", "vT1", "vT2", "vT3"]):

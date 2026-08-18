@@ -1255,3 +1255,17 @@ extern "C" UINT GetDoubleClickTime( void ) { return A5_DOUBLE_CLICK_MS; }
 namespace { long g_nPointerX = 0, g_nPointerY = 0; }
 extern "C" void a5_set_pointer_position( long x, long y ) { g_nPointerX = x; g_nPointerY = y; }
 extern "C" void a5_get_pointer_position( long *px, long *py ) { if ( px ) *px = g_nPointerX; if ( py ) *py = g_nPointerY; }
+
+/* ------------------------------------------------------------------------- */
+/*  Window geometry (see the note in windows.h)                                */
+/* ------------------------------------------------------------------------- */
+namespace { int g_nClientW = 800, g_nClientH = 600; }
+extern "C" void a5_set_client_size( int nWidth, int nHeight ) { g_nClientW = nWidth; g_nClientH = nHeight; }
+extern "C" BOOL GetClientRect( HWND, RECT *pRect )
+{
+    if ( !pRect ) return FALSE;
+    pRect->left = 0; pRect->top = 0; pRect->right = g_nClientW; pRect->bottom = g_nClientH;
+    return TRUE;
+}
+extern "C" BOOL IsWindowVisible( HWND ) { return TRUE; }
+extern "C" BOOL SetWindowPos( HWND, HWND, int, int, int, int, UINT ) { return TRUE; }

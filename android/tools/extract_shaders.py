@@ -31,6 +31,17 @@ RS_TABLE_RE = re.compile(r"static SRenderState (\w+)\[\] = \{(.*?)\};", re.DOTAL
 RS_ENTRY_RE = re.compile(r"\{\s*(D3DRS_\w+),\s*([^}]+?)\}")
 
 
+def fnv1a64(data):
+    """FNV-1a over the raw source bytes; the C++ shim computes the same hash
+    over the text it finds in the bytecode at CreateVertexShader/CreatePixelShader
+    time and looks the GLSL up by it (see compat/d3d9gles/)."""
+    h = 0xcbf29ce484222325
+    for b in data:
+        h ^= b
+        h = (h * 0x100000001b3) & 0xffffffffffffffff
+    return h
+
+
 def blob_source(dwords):
     """The assembly text inside a D3D9 shader blob's DBUG comment."""
     raw = b"".join(struct.pack("<I", d & 0xffffffff) for d in dwords)
@@ -68,7 +79,8 @@ def main():
         with open(os.path.join(OUT, "vs", name + ".vsh"), "w") as f:
             f.write("; %s (id %s) -- recovered from GfxShaders.cpp DBUG chunk\n" % (name, nid))
             f.write(src + "\n")
-        index["vertex"].append({"id": int(nid), "name": name})
+        index["vertex"].append({"id": int(nid), "name": name,
+                                "hash": "%016x" % fnv1a64(src.encode("latin-1"))})
 
     for m in PS_DECL_RE.finditer(text):
         name, nid, arr11, arr14, rssha, tsssha, rsstate, tssstate = m.groups()
@@ -81,8 +93,12 @@ def main():
                 f.write("\n; ---- ps.1.4 variant ----\n")
                 f.write(src14 + "\n")
         states = dict(rs_tables.get(rsstate, []))
+        # The engine reports ps.1.4 hardware and hands the shim the ps.1.4 blob,
+        # so the hash the shim will look up is that blob's text.
         index["pixel"].append({
             "id": int(nid), "name": name,
+            "hash": "%016x" % fnv1a64(src14.encode("latin-1")),
+            "hash11": "%016x" % fnv1a64(src11.encode("latin-1")),
             "ps14_differs": src14 != src11,
             "alpha_test": states.get("D3DRS_ALPHATESTENABLE", "FALSE") == "TRUE",
             "alpha_func": states.get("D3DRS_ALPHAFUNC"),

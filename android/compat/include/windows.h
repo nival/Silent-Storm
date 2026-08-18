@@ -402,6 +402,27 @@ void a5_get_pointer_position( long *px, long *py );
 }
 #endif
 
+/* ----- Window geometry -----------------------------------------------------
+ *  The renderer sizes its back buffer from GetClientRect(hWnd) and calls
+ *  SetWindowPos after a device reset.  On Android the "client area" is the
+ *  virtual back buffer the D3D shim renders into (see compat/d3d9gles), which
+ *  the shim registers here; the real window is only the blit destination. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+void a5_set_client_size( int nWidth, int nHeight );
+BOOL GetClientRect( HWND hWnd, RECT *pRect );
+BOOL IsWindowVisible( HWND hWnd );
+BOOL SetWindowPos( HWND hWnd, HWND hWndInsertAfter, int X, int Y, int cx, int cy, UINT uFlags );
+#ifdef __cplusplus
+}
+#endif
+#define HWND_TOP        ((HWND)0)
+#define HWND_NOTOPMOST  ((HWND)-2)
+#define SWP_SHOWWINDOW  0x0040
+#define SWP_NOMOVE      0x0002
+#define SWP_NOSIZE      0x0001
+
 /* ----- User-interface metrics --------------------------------------------- */
 /*  Windows' system double-click interval (default 500 ms).  Android's
  *  ViewConfiguration.getDoubleTapTimeout() is 300 ms; the UI reads this once. */

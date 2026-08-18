@@ -2,317 +2,396 @@
  "vertex": [
   {
    "id": 1,
-   "name": "vsPureGeometry"
+   "name": "vsPureGeometry",
+   "hash": "dd113cc7374765b7"
   },
   {
    "id": 2,
-   "name": "vsGlow"
+   "name": "vsGlow",
+   "hash": "c4ae905dbb66cb45"
   },
   {
    "id": 3,
-   "name": "vsTransparentMap"
+   "name": "vsTransparentMap",
+   "hash": "62d8100358e1a370"
   },
   {
    "id": 4,
-   "name": "vsTexture"
+   "name": "vsTexture",
+   "hash": "e479abe660d6d5b1"
   },
   {
    "id": 5,
-   "name": "vsTextureLM"
+   "name": "vsTextureLM",
+   "hash": "ca428a2c8856d6a7"
   },
   {
    "id": 6,
-   "name": "vsTextureTexU"
+   "name": "vsTextureTexU",
+   "hash": "74790cb17f19207a"
   },
   {
    "id": 7,
-   "name": "vsRender2D"
+   "name": "vsRender2D",
+   "hash": "4d2f6eebbb5843f9"
   },
   {
    "id": 8,
-   "name": "vsRender2D2"
+   "name": "vsRender2D2",
+   "hash": "9e571247a8e90a5f"
   },
   {
    "id": 9,
-   "name": "vsTextureSqrtModulate"
+   "name": "vsTextureSqrtModulate",
+   "hash": "764ed1dfc00140ba"
   },
   {
    "id": 10,
-   "name": "vsDrawTexU"
+   "name": "vsDrawTexU",
+   "hash": "2ad9c1369e2ac84a"
   },
   {
    "id": 11,
-   "name": "vsRenderCubeMap"
+   "name": "vsRenderCubeMap",
+   "hash": "4ef5e75fe1d305cb"
   },
   {
    "id": 12,
-   "name": "vsConstLightTexture"
+   "name": "vsConstLightTexture",
+   "hash": "8feef13a594630e8"
   },
   {
    "id": 13,
-   "name": "vsConstLight"
+   "name": "vsConstLight",
+   "hash": "04c3997e5a061de2"
   },
   {
    "id": 14,
-   "name": "vsDynamicAmbient"
+   "name": "vsDynamicAmbient",
+   "hash": "f6bbb40142506024"
   },
   {
    "id": 15,
-   "name": "vsLMPDSolid"
+   "name": "vsLMPDSolid",
+   "hash": "b181cafef31e402a"
   },
   {
    "id": 16,
-   "name": "vsLMPDTexture"
+   "name": "vsLMPDTexture",
+   "hash": "5ef0e482a6e44c73"
   },
   {
    "id": 17,
-   "name": "vsDynLMPDSolid"
+   "name": "vsDynLMPDSolid",
+   "hash": "610dfb2cfb0e8a2b"
   },
   {
    "id": 18,
-   "name": "vsDynLMPDTexture"
+   "name": "vsDynLMPDTexture",
+   "hash": "784314930fed63e2"
   },
   {
    "id": 19,
-   "name": "vsLight"
+   "name": "vsLight",
+   "hash": "cdc875d9e718ada3"
   },
   {
    "id": 20,
-   "name": "vsLightPlusAmbient"
+   "name": "vsLightPlusAmbient",
+   "hash": "b50e89c955e0bea0"
   },
   {
    "id": 21,
-   "name": "vsPerPixelDiffuse"
+   "name": "vsPerPixelDiffuse",
+   "hash": "eb0270cf67a13f9d"
   },
   {
    "id": 22,
-   "name": "vsDirectionalLightTexture"
+   "name": "vsDirectionalLightTexture",
+   "hash": "e79e2ad57354334b"
   },
   {
    "id": 23,
-   "name": "vsDirectionalLightTexturePP"
+   "name": "vsDirectionalLightTexturePP",
+   "hash": "e35029326cbe4509"
   },
   {
    "id": 24,
-   "name": "vsCLSkyCheck"
+   "name": "vsCLSkyCheck",
+   "hash": "bf3e45f53b2807ae"
   },
   {
    "id": 25,
-   "name": "vsCLSkyLight"
+   "name": "vsCLSkyLight",
+   "hash": "40de600ca33c45df"
   },
   {
    "id": 26,
-   "name": "vsCLSkyLight3"
+   "name": "vsCLSkyLight3",
+   "hash": "197c78176d148405"
   },
   {
    "id": 27,
-   "name": "vsDirectionalAmbientLightTexture"
+   "name": "vsDirectionalAmbientLightTexture",
+   "hash": "422970c554b57ba5"
   },
   {
    "id": 28,
-   "name": "vsNHCalcer"
+   "name": "vsNHCalcer",
+   "hash": "6e491d758bc5d543"
   },
   {
    "id": 29,
-   "name": "vsNHCalcBumped"
+   "name": "vsNHCalcBumped",
+   "hash": "265fd481df3b3c78"
   },
   {
    "id": 30,
-   "name": "vsFastDirBumpLight"
+   "name": "vsFastDirBumpLight",
+   "hash": "14bd0391479cec93"
   },
   {
    "id": 31,
-   "name": "vsFastDirTranspBumpLight"
+   "name": "vsFastDirTranspBumpLight",
+   "hash": "43ba3952ccb96e13"
   },
   {
    "id": 32,
-   "name": "vsPreciseDirBumpLightTex"
+   "name": "vsPreciseDirBumpLightTex",
+   "hash": "ca59afa2692b73c3"
   },
   {
    "id": 33,
-   "name": "vsPreciseDirBumpLight"
+   "name": "vsPreciseDirBumpLight",
+   "hash": "375443ce113c18b7"
   },
   {
    "id": 34,
-   "name": "vsDirectionalTestSmoothed"
+   "name": "vsDirectionalTestSmoothed",
+   "hash": "b3e1a9a294afd5e2"
   },
   {
    "id": 35,
-   "name": "vsDirectionalTest"
+   "name": "vsDirectionalTest",
+   "hash": "bf3e45f53b2807ae"
   },
   {
    "id": 36,
-   "name": "vsDirectionalTestP"
+   "name": "vsDirectionalTestP",
+   "hash": "22311c3e56547bef"
   },
   {
    "id": 37,
-   "name": "vsParticleLMDirectionalTest"
+   "name": "vsParticleLMDirectionalTest",
+   "hash": "b89cba5939add4d1"
   },
   {
    "id": 38,
-   "name": "vsDepth"
+   "name": "vsDepth",
+   "hash": "70e6825c7c1d8846"
   },
   {
    "id": 39,
-   "name": "vsDepthTextureMax"
+   "name": "vsDepthTextureMax",
+   "hash": "74cd1a239cacaee6"
   },
   {
    "id": 40,
-   "name": "vsPointFalloff"
+   "name": "vsPointFalloff",
+   "hash": "41c977469649f1fd"
   },
   {
    "id": 41,
-   "name": "vsPointLight"
+   "name": "vsPointLight",
+   "hash": "4ab404a24f2720ad"
   },
   {
    "id": 42,
-   "name": "vsPointLightTex"
+   "name": "vsPointLightTex",
+   "hash": "ee1f433905b69e80"
   },
   {
    "id": 43,
-   "name": "vsPrecisePointBump"
+   "name": "vsPrecisePointBump",
+   "hash": "2397ef43ee272cb8"
   },
   {
    "id": 44,
-   "name": "vsPrecisePointBumpTex"
+   "name": "vsPrecisePointBumpTex",
+   "hash": "95935e42c19aeefd"
   },
   {
    "id": 45,
-   "name": "vsPointCubeMapDepth"
+   "name": "vsPointCubeMapDepth",
+   "hash": "87495d1cb3e7d813"
   },
   {
    "id": 46,
-   "name": "vsCLPointLight"
+   "name": "vsCLPointLight",
+   "hash": "f21f12d2b3cd41ef"
   },
   {
    "id": 47,
-   "name": "vsCLPointDepthCheck"
+   "name": "vsCLPointDepthCheck",
+   "hash": "c2eda330440cc174"
   },
   {
    "id": 48,
-   "name": "vsCLPointLightShadowed"
+   "name": "vsCLPointLightShadowed",
+   "hash": "7a231edfadb174ca"
   },
   {
    "id": 49,
-   "name": "vsPerspeciveDepth"
+   "name": "vsPerspeciveDepth",
+   "hash": "4e310b378268f81c"
   },
   {
    "id": 50,
-   "name": "vsSpotShadow"
+   "name": "vsSpotShadow",
+   "hash": "98888022554e88cc"
   },
   {
    "id": 51,
-   "name": "vsJustFog"
+   "name": "vsJustFog",
+   "hash": "caabf0cbf4b9e9db"
   },
   {
    "id": 52,
-   "name": "vsFoggedParticle"
+   "name": "vsFoggedParticle",
+   "hash": "a5422155616b1c04"
   },
   {
    "id": 53,
-   "name": "vsFoggedLitParticle"
+   "name": "vsFoggedLitParticle",
+   "hash": "f2e8d413f1590f8e"
   },
   {
    "id": 54,
-   "name": "vsTexturedFog"
+   "name": "vsTexturedFog",
+   "hash": "824732037b867259"
   },
   {
    "id": 55,
-   "name": "vsProjectTexture"
+   "name": "vsProjectTexture",
+   "hash": "a6abfcbafa12974d"
   },
   {
    "id": 56,
-   "name": "vsRegisterMap"
+   "name": "vsRegisterMap",
+   "hash": "f96650ef8614e61c"
   },
   {
    "id": 57,
-   "name": "vsRegisterMapTex"
+   "name": "vsRegisterMapTex",
+   "hash": "78f73b0d455c3f9b"
   },
   {
    "id": 58,
-   "name": "vsTextureAndMirror"
+   "name": "vsTextureAndMirror",
+   "hash": "adcb8b841e2e4f3d"
   },
   {
    "id": 59,
-   "name": "vsFoggedTextureAndMirror"
+   "name": "vsFoggedTextureAndMirror",
+   "hash": "ff6bd619af7bc155"
   },
   {
    "id": 60,
-   "name": "vsMirror"
+   "name": "vsMirror",
+   "hash": "898cc130cb2b7c04"
   },
   {
    "id": 61,
-   "name": "vsGlossedMirror"
+   "name": "vsGlossedMirror",
+   "hash": "c548bd3724bedb23"
   },
   {
    "id": 62,
-   "name": "vsBumpedMirror"
+   "name": "vsBumpedMirror",
+   "hash": "fcee9b18595b1aff"
   },
   {
    "id": 63,
-   "name": "vsBumpedFresnel"
+   "name": "vsBumpedFresnel",
+   "hash": "241ab7364121d8e4"
   },
   {
    "id": 64,
-   "name": "vsDirPPSpecular"
+   "name": "vsDirPPSpecular",
+   "hash": "6438987f70258826"
   },
   {
    "id": 65,
-   "name": "vsDirPPTexSpecular"
+   "name": "vsDirPPTexSpecular",
+   "hash": "25b961562ea5ad66"
   },
   {
    "id": 66,
-   "name": "vsPointPPSpecular"
+   "name": "vsPointPPSpecular",
+   "hash": "25d2e748bd49fa47"
   },
   {
    "id": 67,
-   "name": "vsPointPPSpecularTex"
+   "name": "vsPointPPSpecularTex",
+   "hash": "f564c2dbf35b4755"
   },
   {
    "id": 68,
-   "name": "vsShadowBlur"
+   "name": "vsShadowBlur",
+   "hash": "6757761975d874f8"
   },
   {
    "id": 69,
-   "name": "vsFullPerPixel"
+   "name": "vsFullPerPixel",
+   "hash": "6f78b451d61be575"
   },
   {
    "id": 70,
-   "name": "vsPerPixelFullTex"
+   "name": "vsPerPixelFullTex",
+   "hash": "9e500b0f7b7e944e"
   },
   {
    "id": 71,
-   "name": "vsFastFullBumpLight"
+   "name": "vsFastFullBumpLight",
+   "hash": "bb6ee9829629daad"
   },
   {
    "id": 72,
-   "name": "vsFullPPSpecular"
+   "name": "vsFullPPSpecular",
+   "hash": "5d842a414e6963b5"
   },
   {
    "id": 73,
-   "name": "vsFullPPTexSpecular"
+   "name": "vsFullPPTexSpecular",
+   "hash": "d2ec49d9541fe9fa"
   },
   {
    "id": 74,
-   "name": "vsDynLMPerPixel"
+   "name": "vsDynLMPerPixel",
+   "hash": "26b36d6b233dedba"
   },
   {
    "id": 75,
-   "name": "vsDynLMPerPixelTex"
+   "name": "vsDynLMPerPixelTex",
+   "hash": "6338aae9315448cc"
   },
   {
    "id": 76,
-   "name": "vsDynLMPreciseBumpTex"
+   "name": "vsDynLMPreciseBumpTex",
+   "hash": "8c59e96f4e7ea95a"
   },
   {
    "id": 77,
-   "name": "vsAlienEffect"
+   "name": "vsAlienEffect",
+   "hash": "aac49a01ea0afe14"
   }
  ],
  "pixel": [
   {
    "id": 1,
    "name": "psDiffuse",
+   "hash": "216ddadb912821b6",
+   "hash11": "216ddadb912821b6",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -321,6 +400,8 @@
   {
    "id": 2,
    "name": "psTFactor",
+   "hash": "164e3737e265b78f",
+   "hash11": "164e3737e265b78f",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -329,6 +410,8 @@
   {
    "id": 3,
    "name": "psTextureCopyAlpha",
+   "hash": "ed98a68fbbb0a8e4",
+   "hash11": "ed98a68fbbb0a8e4",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -337,6 +420,8 @@
   {
    "id": 4,
    "name": "psTextureColor",
+   "hash": "c30a7c88c79fa9ed",
+   "hash11": "c30a7c88c79fa9ed",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -345,6 +430,8 @@
   {
    "id": 5,
    "name": "psTextureAlpha",
+   "hash": "f8cacdbef09ef3d1",
+   "hash11": "f8cacdbef09ef3d1",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -353,6 +440,8 @@
   {
    "id": 6,
    "name": "psAlphaSqrtModulate",
+   "hash": "bb3bdb954a081fa0",
+   "hash11": "bb3bdb954a081fa0",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -361,6 +450,8 @@
   {
    "id": 7,
    "name": "psDiffuseTFactor4",
+   "hash": "f0cbd3924ba4d010",
+   "hash11": "f0cbd3924ba4d010",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -369,6 +460,8 @@
   {
    "id": 8,
    "name": "psDiffuseTexture",
+   "hash": "e7a63507c171739e",
+   "hash11": "e7a63507c171739e",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -377,6 +470,8 @@
   {
    "id": 9,
    "name": "psDiffuseProjectedTexture",
+   "hash": "e2bf3538fd835a9d",
+   "hash11": "e7a63507c171739e",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -385,6 +480,8 @@
   {
    "id": 10,
    "name": "psDiffuseProjectedTexture4",
+   "hash": "e24306f1a2d21602",
+   "hash11": "3765da8cda9fb0d3",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -393,6 +490,8 @@
   {
    "id": 11,
    "name": "psDiffuseProjectedTexture16",
+   "hash": "72777a930d02ab8c",
+   "hash11": "869bc5b6713d64b3",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -401,6 +500,8 @@
   {
    "id": 12,
    "name": "psDiffuseProjTextureTex4",
+   "hash": "05a6341ecfc29fe3",
+   "hash11": "51bc08ee4d738d98",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -409,6 +510,8 @@
   {
    "id": 13,
    "name": "psDiffuseProjTextureTex16",
+   "hash": "3929cbade965318e",
+   "hash11": "c6a641ec5394020b",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -417,6 +520,8 @@
   {
    "id": 14,
    "name": "psAlphaTestDiffuseTex2",
+   "hash": "a682235a85f06f8e",
+   "hash11": "a682235a85f06f8e",
    "ps14_differs": false,
    "alpha_test": true,
    "alpha_func": "D3DCMP_GREATER",
@@ -425,6 +530,8 @@
   {
    "id": 15,
    "name": "psAlphaTestDiffuseTex4",
+   "hash": "87c32f1ae508623c",
+   "hash11": "87c32f1ae508623c",
    "ps14_differs": false,
    "alpha_test": true,
    "alpha_func": "D3DCMP_GREATER",
@@ -433,6 +540,8 @@
   {
    "id": 16,
    "name": "psAlphaTestTexture",
+   "hash": "ed98a68fbbb0a8e4",
+   "hash11": "ed98a68fbbb0a8e4",
    "ps14_differs": false,
    "alpha_test": true,
    "alpha_func": "D3DCMP_GREATER",
@@ -441,6 +550,8 @@
   {
    "id": 17,
    "name": "psAlphaTestTextureCons",
+   "hash": "ed98a68fbbb0a8e4",
+   "hash11": "ed98a68fbbb0a8e4",
    "ps14_differs": false,
    "alpha_test": true,
    "alpha_func": "D3DCMP_GREATER",
@@ -449,6 +560,8 @@
   {
    "id": 18,
    "name": "psAlphaLight",
+   "hash": "17cab9a605f54e8b",
+   "hash11": "17cab9a605f54e8b",
    "ps14_differs": false,
    "alpha_test": true,
    "alpha_func": "D3DCMP_GREATER",
@@ -457,6 +570,8 @@
   {
    "id": 19,
    "name": "psModulateMultitexture",
+   "hash": "ef885f9b0eb865db",
+   "hash11": "ef885f9b0eb865db",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -465,6 +580,8 @@
   {
    "id": 20,
    "name": "psPTextureTexture",
+   "hash": "ed80bbd36e109115",
+   "hash11": "bf5f1ec6425fb830",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -473,6 +590,8 @@
   {
    "id": 21,
    "name": "psDiffuseTexMax",
+   "hash": "e05de36576b2f1a8",
+   "hash11": "e05de36576b2f1a8",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -481,6 +600,8 @@
   {
    "id": 22,
    "name": "psCLSkyLight3",
+   "hash": "ca6a33876ea30f34",
+   "hash11": "ca6a33876ea30f34",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -489,6 +610,8 @@
   {
    "id": 23,
    "name": "psShadowTest",
+   "hash": "1973dc18c95dbc50",
+   "hash11": "79966c124fef1495",
    "ps14_differs": true,
    "alpha_test": true,
    "alpha_func": "D3DCMP_LESSEQUAL",
@@ -497,6 +620,8 @@
   {
    "id": 24,
    "name": "psShadowTestP",
+   "hash": "63208760bdabdaf3",
+   "hash11": "79966c124fef1495",
    "ps14_differs": true,
    "alpha_test": true,
    "alpha_func": "D3DCMP_LESSEQUAL",
@@ -505,6 +630,8 @@
   {
    "id": 25,
    "name": "psSoftShadowTest",
+   "hash": "6cd08d3183e112c5",
+   "hash11": "9d8b5be1b655175c",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -513,6 +640,8 @@
   {
    "id": 26,
    "name": "psShadowTestSmoothed",
+   "hash": "90f4219738d76bde",
+   "hash11": "7c4f7830baad4c5f",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -521,6 +650,8 @@
   {
    "id": 27,
    "name": "psPerspectiveShadowTest",
+   "hash": "3cb8a16588813626",
+   "hash11": "29b48ebd5a9d6169",
    "ps14_differs": true,
    "alpha_test": true,
    "alpha_func": "D3DCMP_LESSEQUAL",
@@ -529,6 +660,8 @@
   {
    "id": 28,
    "name": "psTransparentDifTex4",
+   "hash": "e026b0fb853854a4",
+   "hash11": "e026b0fb853854a4",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -537,6 +670,8 @@
   {
    "id": 29,
    "name": "psTransparentTexTex4AlphaFirst",
+   "hash": "1619ab34bcdf4adb",
+   "hash11": "1619ab34bcdf4adb",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -545,6 +680,8 @@
   {
    "id": 30,
    "name": "psDiffuseTexture2",
+   "hash": "0528da8e10634f7e",
+   "hash11": "0528da8e10634f7e",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -553,6 +690,8 @@
   {
    "id": 31,
    "name": "psDiffuseTexture4",
+   "hash": "e4a16a5753ed21ff",
+   "hash11": "e4a16a5753ed21ff",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -561,6 +700,8 @@
   {
    "id": 32,
    "name": "psDiffuseTexture2CopyAlpha",
+   "hash": "a682235a85f06f8e",
+   "hash11": "a682235a85f06f8e",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -569,6 +710,8 @@
   {
    "id": 33,
    "name": "psDiffuseTexture4CopyAlpha",
+   "hash": "87c32f1ae508623c",
+   "hash11": "87c32f1ae508623c",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -577,6 +720,8 @@
   {
    "id": 34,
    "name": "psTexTexture4",
+   "hash": "09073506608de64b",
+   "hash11": "09073506608de64b",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -585,6 +730,8 @@
   {
    "id": 35,
    "name": "psCLTexTexture4",
+   "hash": "1120aabd55a6bd48",
+   "hash11": "1120aabd55a6bd48",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -593,6 +740,8 @@
   {
    "id": 36,
    "name": "psAlphaTestTexTexture4",
+   "hash": "a6bcd78283d7bad8",
+   "hash11": "a6bcd78283d7bad8",
    "ps14_differs": false,
    "alpha_test": true,
    "alpha_func": "D3DCMP_GREATER",
@@ -601,6 +750,8 @@
   {
    "id": 37,
    "name": "psTexTexture4CopyAlpha",
+   "hash": "a6bcd78283d7bad8",
+   "hash11": "a6bcd78283d7bad8",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -609,6 +760,8 @@
   {
    "id": 38,
    "name": "psLMPDSolid",
+   "hash": "9fd53382c772d7b7",
+   "hash11": "1f41a283b6700a02",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -617,6 +770,8 @@
   {
    "id": 39,
    "name": "psLMPDTexture",
+   "hash": "16624df4bc92e03e",
+   "hash11": "f2e6714fb8bd0fcd",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -625,6 +780,8 @@
   {
    "id": 40,
    "name": "psLMPDTextureAT",
+   "hash": "36903c5c431e8fbb",
+   "hash11": "410609d2177391bc",
    "ps14_differs": true,
    "alpha_test": true,
    "alpha_func": "D3DCMP_GREATER",
@@ -633,6 +790,8 @@
   {
    "id": 41,
    "name": "psLMPDTextureCopyAlpha",
+   "hash": "dcf37fbde268135e",
+   "hash11": "54146f77f39c6993",
    "ps14_differs": true,
    "alpha_test": true,
    "alpha_func": "D3DCMP_GREATER",
@@ -641,6 +800,8 @@
   {
    "id": 42,
    "name": "psPerPixelDiffuseTex4",
+   "hash": "46ba8787b1c8a794",
+   "hash11": "46ba8787b1c8a794",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -649,6 +810,8 @@
   {
    "id": 43,
    "name": "psPerPixelFullTex4",
+   "hash": "c4b7813e79ba3b43",
+   "hash11": "8db978dd9302c560",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -657,6 +820,8 @@
   {
    "id": 44,
    "name": "psFastFullBump4",
+   "hash": "2047e9be902443ec",
+   "hash11": "f52ded7f5eec9c25",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -665,6 +830,8 @@
   {
    "id": 45,
    "name": "psFullPerPixel4",
+   "hash": "9f92ea2edc8688db",
+   "hash11": "f33f828a643fc45f",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -673,6 +840,8 @@
   {
    "id": 46,
    "name": "psDynLMPerPixel4",
+   "hash": "a1bd61321a545a3f",
+   "hash11": "78e914a5d45a895a",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -681,6 +850,8 @@
   {
    "id": 47,
    "name": "psDynLMPerPixelTex4",
+   "hash": "46afcbc0ef5e9742",
+   "hash11": "3d3743707e0de554",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -689,6 +860,8 @@
   {
    "id": 48,
    "name": "psDynLMPreciseBumpTex4",
+   "hash": "ab3588e9a58520a6",
+   "hash11": "0a0771af76086ae6",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -697,6 +870,8 @@
   {
    "id": 49,
    "name": "psProjectedTexture",
+   "hash": "15accdd167e788ea",
+   "hash11": "ed98a68fbbb0a8e4",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -705,6 +880,8 @@
   {
    "id": 50,
    "name": "psFastBump4",
+   "hash": "4b9b14352dd541c4",
+   "hash11": "4b9b14352dd541c4",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -713,6 +890,8 @@
   {
    "id": 51,
    "name": "psFastTranspBump",
+   "hash": "1a7e6d184f07302b",
+   "hash11": "1a7e6d184f07302b",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -721,6 +900,8 @@
   {
    "id": 52,
    "name": "psPreciseBump4",
+   "hash": "07ccec78d289bfae",
+   "hash11": "07ccec78d289bfae",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -729,6 +910,8 @@
   {
    "id": 53,
    "name": "psPrecisePointBump",
+   "hash": "857ab085d3560064",
+   "hash11": "c63c582e7f639b4a",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -737,6 +920,8 @@
   {
    "id": 54,
    "name": "psPrecisePointBumpTex",
+   "hash": "a234d74d51c38831",
+   "hash11": "465d4a53dab09336",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -745,6 +930,8 @@
   {
    "id": 55,
    "name": "psPrecisePointBumpTex16",
+   "hash": "d9f3864b4d8e1d90",
+   "hash11": "b22be6b7c939c5f1",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -753,6 +940,8 @@
   {
    "id": 56,
    "name": "psCalcNH",
+   "hash": "1d16b4af0ec73e03",
+   "hash11": "1d16b4af0ec73e03",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -761,6 +950,8 @@
   {
    "id": 57,
    "name": "psCalcNHBumped",
+   "hash": "7163fafe5872bd0f",
+   "hash11": "30750993c97a3531",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -769,6 +960,8 @@
   {
    "id": 58,
    "name": "psPerPixelSpecular",
+   "hash": "a3f9c31529456910",
+   "hash11": "bd38b0585e41e98f",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -777,6 +970,8 @@
   {
    "id": 59,
    "name": "psPerPixelTexSpecular",
+   "hash": "eacf92c9dd5aba1a",
+   "hash11": "74b160c9d933b29e",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -785,6 +980,8 @@
   {
    "id": 60,
    "name": "psFullPerPixelSpecular",
+   "hash": "eacf92c9dd5aba1a",
+   "hash11": "74b160c9d933b29e",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -793,6 +990,8 @@
   {
    "id": 61,
    "name": "psFullPerPixelTexSpecular",
+   "hash": "da59e1e22bd67023",
+   "hash11": "cec3a9046d0a8353",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -801,6 +1000,8 @@
   {
    "id": 62,
    "name": "psPointPerPixelSpecular",
+   "hash": "eacf92c9dd5aba1a",
+   "hash11": "74b160c9d933b29e",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -809,6 +1010,8 @@
   {
    "id": 63,
    "name": "psPointPerPixelTexSpecular",
+   "hash": "da59e1e22bd67023",
+   "hash11": "cec3a9046d0a8353",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -817,6 +1020,8 @@
   {
    "id": 64,
    "name": "psPrecisePerPixelDiffuse",
+   "hash": "1e381ac52dc145a7",
+   "hash11": "1e381ac52dc145a7",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -825,6 +1030,8 @@
   {
    "id": 65,
    "name": "psFoggedParticle",
+   "hash": "d6d9a0801dc7ae96",
+   "hash11": "d6d9a0801dc7ae96",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -833,6 +1040,8 @@
   {
    "id": 66,
    "name": "psFoggedLitParticle",
+   "hash": "aedc2e0f68658654",
+   "hash11": "aedc2e0f68658654",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -841,6 +1050,8 @@
   {
    "id": 67,
    "name": "psTexturedFog",
+   "hash": "bb693a0ec0a1bbe8",
+   "hash11": "bb693a0ec0a1bbe8",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -849,6 +1060,8 @@
   {
    "id": 68,
    "name": "psTextureAndMirror",
+   "hash": "e459823e7f68efd1",
+   "hash11": "e459823e7f68efd1",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -857,6 +1070,8 @@
   {
    "id": 69,
    "name": "psFoggedTextureAndMirror",
+   "hash": "45def5d668f0b5d8",
+   "hash11": "45def5d668f0b5d8",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -865,6 +1080,8 @@
   {
    "id": 70,
    "name": "psMirror",
+   "hash": "fa1bc791dd338ee6",
+   "hash11": "fa1bc791dd338ee6",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -873,6 +1090,8 @@
   {
    "id": 71,
    "name": "psGlossedMirror",
+   "hash": "6cad9df76ad883bd",
+   "hash11": "6cad9df76ad883bd",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -881,6 +1100,8 @@
   {
    "id": 72,
    "name": "psBumpedMirror",
+   "hash": "c5574bc43a25e6b6",
+   "hash11": "c5574bc43a25e6b6",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -889,6 +1110,8 @@
   {
    "id": 73,
    "name": "psBumpedFresnel",
+   "hash": "05f6ecaaead6b500",
+   "hash11": "05f6ecaaead6b500",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -897,6 +1120,8 @@
   {
    "id": 74,
    "name": "psShadowBlur",
+   "hash": "13cbb92c6f3d8d00",
+   "hash11": "13cbb92c6f3d8d00",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -905,6 +1130,8 @@
   {
    "id": 75,
    "name": "psAlienEffect",
+   "hash": "9f277297eba79206",
+   "hash11": "8d8fb9d60102602b",
    "ps14_differs": true,
    "alpha_test": false,
    "alpha_func": null,
@@ -913,6 +1140,8 @@
   {
    "id": 76,
    "name": "psPointCubeMapDepth",
+   "hash": "de5e3aef2e110ade",
+   "hash11": "de5e3aef2e110ade",
    "ps14_differs": false,
    "alpha_test": false,
    "alpha_func": null,
@@ -921,6 +1150,8 @@
   {
    "id": 77,
    "name": "psCLPointDepthCheck",
+   "hash": "cbd857bb350fdc83",
+   "hash11": "cbd857bb350fdc83",
    "ps14_differs": false,
    "alpha_test": true,
    "alpha_func": "D3DCMP_LESSEQUAL",
@@ -929,6 +1160,8 @@
   {
    "id": 78,
    "name": "psCLPointLightShadowed",
+   "hash": "fba7c476a5804516",
+   "hash11": "919d787cea8b5082",
    "ps14_differs": true,
    "alpha_test": true,
    "alpha_func": "D3DCMP_LESSEQUAL",

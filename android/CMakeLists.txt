@@ -91,6 +91,20 @@ if(ANDROID)
 endif()
 
 # ---------------------------------------------------------------------------
+#  d3d9gles -- the Direct3D 9 subset the renderer uses, on GLES 3
+# ---------------------------------------------------------------------------
+if(ANDROID)
+    add_library(a5d3d9gles STATIC
+        ${COMPAT_DIR}/d3d9gles/d3d9gles.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/glsl_table.cpp
+        ${PLATFORM_DIR}/dxt_decode.cpp
+    )
+    target_include_directories(a5d3d9gles PUBLIC
+        ${COMPAT_DIR}/d3d9gles ${COMPAT_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/shaders ${PLATFORM_DIR})
+    target_link_libraries(a5d3d9gles PUBLIC a5compat GLESv3 EGL)
+endif()
+
+# ---------------------------------------------------------------------------
 #  Engine modules
 # ---------------------------------------------------------------------------
 #  Misc     -- refcounting, math, strings, timing            (foundation)
@@ -232,8 +246,14 @@ add_library(native_app_glue STATIC
 target_include_directories(native_app_glue PUBLIC
     ${ANDROID_NDK}/sources/android/native_app_glue)
 
+#  The engine's shader tables (bytecode + descriptors) -- the D3D shim's
+#  self-test compiles every entry from them on the device.
+a5_engine_module(a5mainshaders ${ENGINE_GEN}/Main/GfxShaders.cpp)
+target_include_directories(a5mainshaders PUBLIC ${COMPAT_DIR}/d3d9gles)
+
 add_library(silentstorm SHARED
     ${PLATFORM_DIR}/android_main.cpp
+    ${PLATFORM_DIR}/d3d_selftest.cpp
     ${PLATFORM_DIR}/gles_present.cpp
     ${PLATFORM_DIR}/boot_harness.cpp
     ${PLATFORM_DIR}/data_mount.cpp
@@ -242,12 +262,14 @@ add_library(silentstorm SHARED
 )
 target_include_directories(silentstorm PRIVATE
     ${COMPAT_DIR}/include
+    ${COMPAT_DIR}/d3d9gles
     ${ENGINE_GEN}
     ${PLATFORM_DIR}
 )
 target_compile_options(silentstorm PRIVATE ${ENGINE_COMPILE_OPTIONS})
 target_link_libraries(silentstorm
     native_app_glue
+    a5mainshaders a5d3d9gles
     a5script a5dbformat a5image a5miscdll a5fileio a5misc a5compat
     android log EGL GLESv2
 )

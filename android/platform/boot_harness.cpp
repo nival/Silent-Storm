@@ -29,6 +29,9 @@
 #include "Main/GPixelFormat.h"
 #include "Image/ImageMMP.h"
 #include "dxt_decode.h"
+#ifdef __ANDROID__
+#include "d3d_selftest.h"
+#endif
 
 #define LOGI( ... ) a5_log( A5_PRIORITY_INFO,  __VA_ARGS__ )
 #define LOGE( ... ) a5_log( A5_PRIORITY_ERROR, __VA_ARGS__ )
@@ -672,6 +675,13 @@ void CheckScripting( CReport *pReport )
                       pszGreeting ? pszGreeting : "(null)" );
 }
 
+#ifdef __ANDROID__
+void D3DReportSink( void *pReporter, EBootStatus status, double fSeconds, const char *pszText )
+{
+    static_cast< CReport * >( pReporter )->Add( status, fSeconds, "%s", pszText );
+}
+#endif
+
 }  // namespace
 
 BASIC_REGISTER_CLASS( CProbeObject );
@@ -715,6 +725,10 @@ SBootReport RunBootHarness( const char *pszExternalFilesDir,
     CheckTextures( &report, mount );
     CheckScripting( &report );
     CheckGameScripts( &report, mount );
+#ifdef __ANDROID__
+    /* Needs a current GL context: android_main runs the harness after InitDisplay. */
+    RunD3DSelfTest( &report, D3DReportSink );
+#endif
 
     report.Add( BOOT_HEADING, 0, "Summary" );
     report.Add( report.report.nFailed ? BOOT_FAIL : BOOT_OK, 0,

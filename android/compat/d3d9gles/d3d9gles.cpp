@@ -408,7 +408,10 @@ public:
     virtual HRESULT LockRect( D3DLOCKED_RECT *pLockedRect, const RECT *pRect, DWORD Flags )
     {
         if ( bLocked )
+        {
+            D3DGL_WARN( "d3d9gles: LockRect on an already locked surface (%dx%d, kind %d)", Width(), Height(), (int)kind );
             return D3DERR_INVALIDCALL;
+        }
         const SFormatInfo &f = Format();
         if ( pRect )
             lockRect = *pRect;
@@ -427,7 +430,10 @@ public:
             return D3D_OK;
         }
         if ( kind != SK_TEXTURE )
+        {
+            D3DGL_WARN( "d3d9gles: LockRect on a surface of kind %d", (int)kind );
             return D3DERR_INVALIDCALL;
+        }
 
         if ( !pImage->bRenderTarget )
         {
@@ -1341,11 +1347,14 @@ public:
         const int nAlive = g_hooks.isSurfaceAlive ? g_hooks.isSurfaceAlive() : 1;
         if ( !nAlive )
         {
+            if ( nLastSurfaceAlive )
+                D3DGL_LOG( "d3d9gles: surface gone - device lost" );
             nLastSurfaceAlive = 0;
             return D3DERR_DEVICELOST;
         }
         if ( !nLastSurfaceAlive )
         {
+            D3DGL_LOG( "d3d9gles: surface back - device needs a Reset" );
             nLastSurfaceAlive = 1;
             bNeedReset = true;
         }

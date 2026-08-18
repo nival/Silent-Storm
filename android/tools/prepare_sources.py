@@ -17,6 +17,7 @@ against the historical sources always stays auditable.
 """
 
 import argparse
+import fnmatch
 import os
 import re
 import shutil
@@ -341,7 +342,7 @@ def rewrite_condition_declarations(text):
 #  `*c.insert( c.end() )` becomes `( c.resize( c.size() + 1 ), c.back() )`,
 #  which yields the same reference to a fresh default-constructed last element.
 SINGLE_ARG_INSERT_RE = re.compile(
-    r"\*\s*([A-Za-z_]\w*(?:(?:\.|->)[A-Za-z_]\w*)*)\s*(\.|->)\s*insert\s*\(\s*\1\s*\2\s*end\s*\(\s*\)\s*\)")
+    r"\*\s*\(?\s*([A-Za-z_]\w*(?:(?:\.|->)[A-Za-z_]\w*)*)\s*(\.|->)\s*insert\s*\(\s*\1\s*\2\s*end\s*\(\s*\)\s*\)\s*\)?")
 
 
 def rewrite_single_arg_insert(text):
@@ -2460,6 +2461,263 @@ RULES += [
     ),
 ]
 
+# ---------------------------------------------------------------------------
+#  Rule set 13: the D3D9 renderer files, against compat/d3d9gles
+# ---------------------------------------------------------------------------
+RULES += [
+    (
+        "*/*.cpp",
+        "The engine spells the header <D3D9.h>; on a case-sensitive filesystem "
+        "the shim's file is d3d9.h.",
+        re.compile(r'#include <D3D9\.h>'),
+        '#include <d3d9.h>  // [android] compat/d3d9gles',
+    ),
+    (
+        "Main/GfxBuffers.cpp",
+        "ReallyFastShiftingTransfer widened 16-bit indices to 32 bits while "
+        "adding the vertex-buffer base -- in MMX.  A loop the compiler "
+        "vectorises does the same.",
+        re.compile(
+            r"static __forceinline void ReallyFastShiftingTransfer\( const unsigned short \*pSrc, int \*pDst, int nSize, int nShift \)\n\{\n\t_asm\n\t\{.*?\n\t\}\n\}",
+            re.DOTALL),
+        """static __forceinline void ReallyFastShiftingTransfer( const unsigned short *pSrc, int *pDst, int nSize, int nShift )
+{
+	// [android] was MMX (punpcklwd/paddd over four indices at a time)
+	for ( int i = 0; i < nSize; ++i )
+		pDst[i] = (int)pSrc[i] + nShift;
+}""",
+    ),
+    (
+        "Main/GfxBuffers.cpp",
+        "The vertex-buffer sub-allocator locks the whole buffer and writes one "
+        "element's range; tell the shim which range so Unlock uploads only that "
+        "(see IDirect3DVertexBuffer9::MarkDirty in compat/d3d9gles/d3d9.h).",
+        """	virtual void* Lock()
+	{
+		++nLocked;
+		return pBuffer->Lock() + pBuffer->GetStride() * nStart;
+	}""",
+        """	virtual void* Lock()
+	{
+		++nLocked;
+		unsigned char *pBase = pBuffer->Lock();
+		// [android] dirty-range hint for the GLES buffer upload
+		pBuffer->GetBuffer()->obj->MarkDirty( pBuffer->GetStride() * nStart, pBuffer->GetStride() * nBufSize );
+		return pBase + pBuffer->GetStride() * nStart;
+	}""",
+    ),
+    (
+        "Main/GfxBuffers.cpp",
+        "Same hint for the 32-bit dynamic index ring: it writes nToDraw "
+        "triangles at nLast.",
+        """			pDynamicTrisBuffer->Lock( dwFlags );
+			S32Triangle *pTri = (S32Triangle*)pDynamicTrisBuffer->pLocked;
+			pTri += nLast;
+			ReallyFastShiftingTransfer( (const unsigned short*)&pSrcTris[ nSrcStart ], (int*)pTri, nToDraw * 3, nVBStart );""",
+        """			pDynamicTrisBuffer->Lock( dwFlags );
+			S32Triangle *pTri = (S32Triangle*)pDynamicTrisBuffer->pLocked;
+			pTri += nLast;
+			pDynamicTrisBuffer->obj->MarkDirty( nLast * sizeof(S32Triangle), nToDraw * sizeof(S32Triangle) );  // [android]
+			ReallyFastShiftingTransfer( (const unsigned short*)&pSrcTris[ nSrcStart ], (int*)pTri, nToDraw * 3, nVBStart );""",
+    ),
+    (
+        "Main/GfxBuffers.cpp",
+        "Same hint for the 16-bit ring.",
+        """			pDynamicTrisBuffer->Lock( dwFlags );
+			S3DTriangle *pTri = (S3DTriangle*)pDynamicTrisBuffer->pLocked;
+			pTri += nLast;
+			// fill tris from source""",
+        """			pDynamicTrisBuffer->Lock( dwFlags );
+			S3DTriangle *pTri = (S3DTriangle*)pDynamicTrisBuffer->pLocked;
+			pTri += nLast;
+			pDynamicTrisBuffer->obj->MarkDirty( nLast * sizeof(S3DTriangle), nToDraw * sizeof(S3DTriangle) );  // [android]
+			// fill tris from source""",
+    ),
+]
+
+RULES += [
+    (
+        "Misc/Basic2.h",
+        "OBJECT_NOCOPY_METHODS calls the destructor as `classname::~classname()`. "
+        "Inside a class template whose destructor is implicit (GfxBuffers.cpp's "
+        "CLinearBuffer, CIBFast) clang cannot find it by qualified name at "
+        "definition time; `this->~classname()` resolves the same destructor -- "
+        "DestroyContents is virtual and each class instantiates its own, so the "
+        "dynamic type is classname -- and is accepted everywhere.",
+        re.compile(r"virtual void DestroyContents\(\) \{ classname::~classname\(\);"),
+        "virtual void DestroyContents() { this->~classname();",
+    ),
+    (
+        "Main/GfxBuffers.cpp",
+        "list::push_front() / insert(pos) with no value: MSVC extension.",
+        "\t\tframes.push_front();",
+        "\t\tframes.push_front( SBuffersPerFrame() );  // [android] no-argument push_front",
+    ),
+    (
+        "Main/GfxBuffers.cpp",
+        "Same for insert(pos).",
+        "\t\tframes.insert( frames.begin() )->data.reserve( nReserve );",
+        "\t\tframes.insert( frames.begin(), SBuffersPerFrame() )->data.reserve( nReserve );  // [android]",
+    ),
+    (
+        "Main/GfxBuffers.cpp",
+        "typename on nested dependent types of the cache template.",
+        re.compile(r"(?<!typename )\bCCache::SCachePlace\b"),
+        "typename CCache::SCachePlace",
+    ),
+    (
+        "Main/GfxBuffers.cpp",
+        "typename on CCache::SStatePlace.",
+        re.compile(r"(?<!typename )\bCCache::SStatePlace\b"),
+        "typename CCache::SStatePlace",
+    ),
+    (
+        "Main/GfxRender.cpp",
+        "`SRenderParam<SFBTransform> transformMode( SFBTransform() );` is the "
+        "most-vexing parse -- a function declaration.  Brace-initialise.",
+        "static SRenderParam<SFBTransform> transformMode( SFBTransform() );",
+        "static SRenderParam<SFBTransform> transformMode( ( SFBTransform() ) );  // [android] most vexing parse",
+    ),
+]
+
+RULES += [
+    (
+        "Main/Cursor.cpp",
+        "The cursor integrates relative mouse deltas.  Touch is absolute: when "
+        "the platform has published a pointer position (a5_get_pointer_position, "
+        "set on every touch event in back-buffer coordinates) the cursor takes "
+        "it directly.  With no touch yet, the original delta path runs unchanged.",
+        """	const CVec2 &vSize = NGfx::GetScreenRect();
+	vCursorPos.x += AccelerateAxis( bindX.GetDelta() * 250.0f, sDelta );
+	vCursorPos.y += AccelerateAxis( bindY.GetDelta() * 250.0f, sDelta );""",
+        """	const CVec2 &vSize = NGfx::GetScreenRect();
+	// [android] absolute pointer (touch) takes precedence over integrated deltas
+	{
+		LONG nAbsX = 0, nAbsY = 0;
+		if ( a5_get_pointer_absolute( &nAbsX, &nAbsY ) )
+		{
+			vCursorPos.x = (float)nAbsX;
+			vCursorPos.y = (float)nAbsY;
+			bindX.GetDelta(); bindY.GetDelta();   // consume, keep the binds' state sane
+		}
+		else
+		{
+			vCursorPos.x += AccelerateAxis( bindX.GetDelta() * 250.0f, sDelta );
+			vCursorPos.y += AccelerateAxis( bindY.GetDelta() * 250.0f, sDelta );
+		}
+	}""",
+    ),
+]
+
+# ---------------------------------------------------------------------------
+#  Rule set 14: link-time issues in Main
+# ---------------------------------------------------------------------------
+RULES += [
+    (
+        "Main/GParticleFormat.cpp",
+        "GParticleFormat.h declares `template<class T> void Interpolate(...)`; the "
+        ".cpp defines plain overloads for CVec3/CVec2/float/DWORD/short.  MSVC "
+        "resolved calls to the template against those overloads at link time; "
+        "ISO C++ needs them to be explicit specialisations of the template.",
+        re.compile(r"^void Interpolate\( const (\w+) &v1, const \1 &v2, float fAlpha, \1 \*pRes \)", re.MULTILINE),
+        r"template<> void Interpolate( const \1 &v1, const \1 &v2, float fAlpha, \1 *pRes )  // [android] explicit specialisation",
+    ),
+    (
+        "Main/BuildingGrid.cpp",
+        "CBuildingGrid::At is defined `inline` in the .cpp but declared without "
+        "it in the header and called from other files; MSVC still emitted an "
+        "out-of-line copy, the ISO linker does not.",
+        "inline BYTE& CBuildingGrid::At( const SPoint3 &pt )",
+        "BYTE& CBuildingGrid::At( const SPoint3 &pt )  // [android] was inline in the .cpp only",
+    ),
+]
+
+# ---------------------------------------------------------------------------
+#  Rule set 15: runtime diagnostics -- a failed allocation that the original
+#  would have followed with a null dereference now says what it was.
+# ---------------------------------------------------------------------------
+RULES += [
+    (
+        "Main/GfxBuffers.cpp",
+        "CTextureCache::Alloc returns 0 both when the cache has no backing "
+        "texture and when the quad tree has no room; the caller (GTexture.cpp) "
+        "dereferences the result.  Say which it was before that happens.",
+        """		if ( !IsValid(pCache) )
+			return 0;
+		NCache::CQuadTreeElement elem;
+		elem.nXSize = GetMSB( nXSize - 1 ) + 1;
+		elem.nYSize = GetMSB( nYSize - 1 ) + 1;
+		typename CCache::SCachePlace place;
+		if ( !pCache->GetPlace( elem, &place ) )
+			return 0;""",
+        """		if ( !IsValid(pCache) )
+		{
+			OutputDebugString( "[android] texture cache: Alloc before Init (no cache texture)\\n" );  // [android]
+			return 0;
+		}
+		NCache::CQuadTreeElement elem;
+		elem.nXSize = GetMSB( nXSize - 1 ) + 1;
+		elem.nYSize = GetMSB( nYSize - 1 ) + 1;
+		typename CCache::SCachePlace place;
+		if ( !pCache->GetPlace( elem, &place ) )
+		{
+			char szDiag[ 128 ];  // [android]
+			sprintf( szDiag, "[android] texture cache: no place for %dx%d (log2 %dx%d) in %dx%d\\n", nXSize, nYSize, elem.nXSize, elem.nYSize, pBuffer->GetXSize(), pBuffer->GetYSize() );
+			OutputDebugString( szDiag );
+			return 0;
+		}""",
+    ),
+    (
+        "Main/GTexture.cpp",
+        "MakeTexture( hdr, ... ) can return 0 (cache full) and RealLoadTexture "
+        "then dereferences it.  Report the texture instead of crashing on it.",
+        """static NGfx::CTexture* MakeTexture( const SMMPFileHeader &hdr, NGfx::ETextureUsage eUsage, NGfx::EWrap eWrap )
+{
+	return NGfx::MakeTexture( hdr.nSizeX, hdr.nSizeY, hdr.nNumMipLevels, 
+		hdr.format, eUsage, eWrap );
+}""",
+        """static NGfx::CTexture* MakeTexture( const SMMPFileHeader &hdr, NGfx::ETextureUsage eUsage, NGfx::EWrap eWrap )
+{
+	NGfx::CTexture *pRes = NGfx::MakeTexture( hdr.nSizeX, hdr.nSizeY, hdr.nNumMipLevels, 
+		hdr.format, eUsage, eWrap );
+	// [android] diagnostics: the caller dereferences the result
+	if ( !pRes || !CDynamicCast<NGfx::I2DBuffer>( pRes ).GetPtr() )
+	{
+		char szDiag[ 160 ];
+		sprintf( szDiag, "[android] MakeTexture failed: %dx%d, %d mips, format %d, usage %d, wrap %d -> %p\\n",
+			hdr.nSizeX, hdr.nSizeY, hdr.nNumMipLevels, hdr.format, (int)eUsage, (int)eWrap, (void*)pRes );
+		OutputDebugString( szDiag );
+	}
+	return pRes;
+}""",
+    ),
+    (
+        "Misc/Basic2.h",
+        "CDynamicCast casts an opaque (forward-declared) object pointer to "
+        "CObjectBase* with a C-style cast, i.e. a reinterpret_cast, then "
+        "dynamic_casts from there.  MSVC's RTTI locates the complete object from "
+        "any vptr so that worked; the Itanium ABI looks for a CObjectBase "
+        "subobject at that address, finds none (CObjectBase is a virtual base "
+        "and lives at the end of the object) and returns null -- every "
+        "CDynamicCast<I2DBuffer>( NGfx::CTexture* ) in Main failed.  "
+        "a5_cast_opaque<> (compat) does what MSVC did: read the vptr, find the "
+        "complete object and cast from its real type.",
+        """		inline CDynamicCast( TT *_ptr ) { ptr = dynamic_cast<T*>((CObjectBase*)_ptr); }""",
+        """		inline CDynamicCast( TT *_ptr ) { ptr = a5_cast_opaque<T>( _ptr ); }  // [android] was dynamic_cast<T*>((CObjectBase*)_ptr)""",
+    ),
+    (
+        "Main/*.cpp",
+        "Console commands and variables get `this` (an interface object) as a "
+        "void* context and recover it with `(CObjectBase*)pContext` before a "
+        "dynamic_cast.  Same MSVC-vs-Itanium RTTI difference as above: the "
+        "reinterpreted pointer is not a CObjectBase subobject and the "
+        "dynamic_cast yields null.  a5_cast_opaque<> reads the vptr and casts "
+        "from the complete object.",
+        re.compile(r"\(\s*CObjectBase\s*\*\s*\)\s*pContext\b"),
+        "a5_cast_opaque<CObjectBase>( pContext )",
+    ),
+]
+
 
 def apply_rules(text, rel_path, applied, unmatched):
     """Apply every rule whose file pattern matches.
@@ -2470,8 +2728,8 @@ def apply_rules(text, rel_path, applied, unmatched):
     assumption about the historical source no longer holds.
     """
     for pattern, description, old, new in RULES:
-        if pattern.startswith("*/"):
-            if not rel_path.endswith(pattern[1:]):
+        if "*" in pattern:
+            if not fnmatch.fnmatch(rel_path, pattern):
                 continue
         elif pattern != rel_path:
             continue
@@ -2481,16 +2739,19 @@ def apply_rules(text, rel_path, applied, unmatched):
             applied.append((rel_path, description))
             continue
 
+        # A wildcard rule is expected to miss most files; only exact-path
+        # rules count as unmatched when they find nothing.
+        wildcard = "*" in pattern
         if hasattr(old, "search"):
             text, count = old.subn(new, text)
             if count:
                 applied.append((rel_path, description))
-            else:
+            elif not wildcard:
                 unmatched.append((rel_path, description))
         elif old in text:
             text = text.replace(old, new)
             applied.append((rel_path, description))
-        else:
+        elif not wildcard:
             unmatched.append((rel_path, description))
     return text
 

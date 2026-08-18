@@ -77,6 +77,7 @@ set(ENGINE_DEFINITIONS
 add_library(a5compat STATIC
     ${COMPAT_DIR}/src/win32compat.cpp
     ${COMPAT_DIR}/src/msvc_crt.cpp
+    ${COMPAT_DIR}/src/rtti_compat.cpp
     ${COMPAT_DIR}/src/wide_char.cpp
     ${COMPAT_DIR}/src/lifestudio_stub.cpp
 )
@@ -189,10 +190,13 @@ target_link_libraries(a5image PUBLIC a5fileio a5png)
 #  database-source stub the shipping game links in place of ADOImport's COM/ADO
 #  content-import path.
 file(GLOB DBFORMAT_SOURCES ${ENGINE_GEN}/DBFormat/Data*.cpp)
+#  platform/db_retail.cpp stands in for ADOFake: it reads the generic-table
+#  format every shipped game.db actually uses (see the file's header).
 a5_engine_module(a5dbformat
     ${DBFORMAT_SOURCES}
-    ${ENGINE_GEN}/ADOFake/BasicDBfake.cpp
+    ${PLATFORM_DIR}/db_retail.cpp
 )
+target_include_directories(a5dbformat PRIVATE ${PLATFORM_DIR})
 target_link_libraries(a5dbformat PUBLIC a5fileio a5miscdll)
 
 # ---------------------------------------------------------------------------
@@ -203,9 +207,13 @@ target_link_libraries(a5dbformat PUBLIC a5fileio a5miscdll)
 option(A5_BUILD_MAIN "Compile the Main module (work in progress)" OFF)
 if(A5_BUILD_MAIN)
     #  The file list comes from Main.vcproj (via prepare_sources.py), not a
-    #  glob: the directory holds two sources MSVC never built.
+    #  glob: the directory holds two sources MSVC never built.  GfxShaders.cpp
+    #  is built separately (a5mainshaders) so the D3D self-test can use it
+    #  before the rest of Main links.
     include(${ENGINE_GEN}/Main/SOURCES.cmake)
-    add_library(a5main OBJECT ${MAIN_VCPROJ_SOURCES})
+    list(REMOVE_ITEM MAIN_VCPROJ_SOURCES ${ENGINE_GEN}/Main/GfxShaders.cpp)
+    add_library(a5main STATIC ${MAIN_VCPROJ_SOURCES} ${ENGINE_GEN}/Input/Bind.cpp)
+    target_include_directories(a5main PUBLIC ${COMPAT_DIR}/d3d9gles)
     #  ${ENGINE_GEN}/Main is deliberately NOT an include directory: it holds a
     #  Time.h that would shadow the system <time.h> (a case-insensitive host, or
     #  the -I search order, both find it first).  Engine sources include their
@@ -267,6 +275,15 @@ target_include_directories(silentstorm PRIVATE
     ${PLATFORM_DIR}
 )
 target_compile_options(silentstorm PRIVATE ${ENGINE_COMPILE_OPTIONS})
+if(A5_BUILD_MAIN)
+    target_sources(silentstorm PRIVATE
+        ${PLATFORM_DIR}/game_entry.cpp
+        ${PLATFORM_DIR}/input_android.cpp
+        ${PLATFORM_DIR}/audio_null.cpp)
+    target_compile_options(silentstorm PRIVATE ${ENGINE_COMPILE_OPTIONS})
+    target_link_libraries(silentstorm a5main)
+    target_compile_definitions(silentstorm PRIVATE A5_HAVE_MAIN=1)
+endif()
 target_link_libraries(silentstorm
     native_app_glue
     a5mainshaders a5d3d9gles

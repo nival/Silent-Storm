@@ -33,8 +33,10 @@ typedef unsigned short      WORD;
 typedef unsigned int        DWORD;      /* 32 bits on Win32 *and* here (not "long") */
 typedef unsigned int        UINT;
 typedef int                 INT;
-typedef long                LONG;
-typedef unsigned long       ULONG;
+typedef int                 LONG;       /* Win32 LONG is 32 bits; `long` is 64 on LP64.  The engine
+                                           casts CTRect<int>* to RECT* and CTPoint<int>* to POINT*
+                                           (GfxBuffers.cpp CTextureLocker), so the widths must match. */
+typedef unsigned int        ULONG;
 typedef unsigned short      USHORT;
 typedef unsigned char       UCHAR;
 typedef char                CHAR;
@@ -397,7 +399,10 @@ UINT  GetPrivateProfileIntA( LPCSTR sect, LPCSTR key, INT def, LPCSTR file );
 extern "C" {
 #endif
 void a5_set_pointer_position( long x, long y );
-void a5_get_pointer_position( long *px, long *py );
+void a5_get_pointer_position( LONG *px, LONG *py );
+/* Non-zero once a touch has been seen; the engine's cursor then reads the
+ * absolute position instead of integrating mouse deltas. */
+int  a5_get_pointer_absolute( LONG *px, LONG *py );
 #ifdef __cplusplus
 }
 #endif

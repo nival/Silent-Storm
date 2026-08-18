@@ -12,12 +12,22 @@ not as a summary of what happened.
         FileIO        ████████████████████  ported, reading real .res packages
         Script        ████████████████████  Lua 4.0 running the game's own .l sources
         MiscDll       ████████████████░░░░  builds; console vars untested
-        DBFormat      ████████████████░░░░  builds and runs; blocked on the *data* (see below)
+        DBFormat      ████████████████████  ported; loads the retail game.db (130/130 tables, 222k records)
         Image         ████████████████████  ported; DXT1/3/5 software decoder in platform/
-        Main          ███████████████████░  264/269 files compile; the 5 left are the D3D9 backend
-        Input         ████░░░░░░░░░░░░░░░░  headers staged; Input.h is the seam for touch
+        Main          ████████████████████  269/269 files compile and link; the game loop runs on device
+        d3d9gles      ██████████████████░░  D3D9 device on GLES 3.0; 155 shaders translated; first frames drawn
+        Input         ████████████░░░░░░░░  NInput on Android keys/touch; camera scheme still to design
         FModSound     ████████░░░░░░░░░░░░  NFMSound implemented as a silent null back end
 ```
+
+**On the Samsung Z Fold7 (2026-08-18):** the app boots, runs the boot harness
+(38 checks pass), loads `Complete/game.db` in ~0.5 s through the retail-format
+importer, initialises the renderer through the D3D9-on-GLES shim, and enters the
+game's main loop: `CInterMissionInterface` steps and presents at ~120 fps into a
+1024×768 virtual back buffer letterboxed on the 2184×1968 panel. What is on
+screen is the intermission's grey clear colour; the two open items at the head
+of the list below are getting the text/UI to draw and getting past the
+intermission into the main menu.
 
 ## The order the remaining work should happen in
 
@@ -30,33 +40,44 @@ staged sources now use `char16_t`/`std::u16string` (a mechanical pass in
 `compat/src/wide_char.cpp` provides the char16_t CRT forms plus real
 windows-1251/1252 conversion tables for `MultiByteToWideChar` and friends.
 
-### 1b. `game.db` — the data is newer than the source
+### 1b. `game.db` — done, by importing the retail format
 
-`DBFormat` and the `ADOFake` database stub compile, link and run: all 130 record
-classes register, `NDatabase::Serialize` parses `game.db` and creates the table
-registry. But **no `game.db` in this repository matches this source snapshot**.
+No `game.db` in this repository is in the layout this source's `ADOFake` stub
+expects (typed records serialised through their own `operator&`). Every shipped
+file (`Data/`, `Complete/`, `Versions/Current/*/`) stores each table as an object
+of a class registered as `0xA1843130` — a **generic column store**, i.e. a dump of
+the ADO table the content team edited:
 
-* This source (January 2003) stores the database as `hash_map<int, CDBTableBase>`
-  by value, each table's records going through the record classes' `operator&`.
-* Every shipped `game.db` (`Data/`, `Complete/`, `Versions/Current/`) stores each
-  table as a heap object of a class registered as `0xA1843130` — a class this
-  source does not have — with a uniform body of chunks 2..8 that looks like a
-  column-oriented layout common to all tables. `Complete/game.db` additionally
-  carries a leading chunk-4 version tag.
+```
+chunk 2   per record: vector<int>       int and bool columns, in column order
+chunk 3   per record: vector<float>     float columns
+chunk 4   per record: vector<wstring>   string columns (UTF-16)
+chunk 5   column descriptors { 2: name (windows-1251), 3: type 0 int/1 bool/2 float/3 string }
+chunk 6/7/8   names of the int / float / string columns, in value order
+```
 
-The chunk serialiser reports the situation exactly (`a5_serializer_unknown_types`),
-and the harness shows it as a warning rather than a failure. Two ways forward:
+The table ids in the file's top-level `hash_map<int, CObj<CObjectBase>>` are the
+same ids `DBFormat` registers (`45` = Strings, `0xE0000001` = RPGWeaponTypes…),
+which is what makes the import possible: the shipping engine evidently ran the
+ADO-style import at load time against that dump, and so does the port.
+`platform/db_retail.cpp` (built instead of `ADOFake/BasicDBfake.cpp`) is the
+`ADOImport/BasicDB.cpp` driver — PreCreate every table's records by their `ID`
+column, then call each record's own `Import()` with the table cursor on its
+row — with the chunk format as the "connection". The record classes' `Import()`
+methods, which is where the schema lives, run unchanged.
 
-1. **Find a matching database.** The `Data/*.mdb` Access files are the authoring
-   source; `Tools/` contains the importer that produced `game.db` from them
-   (`DataImport.exe`). If a copy of the January 2003 build's `game.db` — or the
-   ability to run the importer of that era — turns up, the port loads it as-is.
-2. **Reverse the retail table format.** Chunks 2..8 per table across 56 tables
-   is a bounded job, but it is a job of *recovering a schema*, and its correctness
-   would rest on inference rather than on the source. Not attempted here.
+Result on `Complete/game.db` (34 MB): 130/130 tables matched, 222,619 records,
+14 columns the source asks for that the file no longer has (`RPGWeapons.
+AmmoTypeID`, `MaleCustomHead1..6`… — the fields stay default), 25 tables in the
+file this source has no class for (later features: medals, chests, hair/glasses
+customisation). `Data/game.db` (3 MB) is a development cut of the same format
+with too little data to be consistent (one weapon type) — use `Complete/`'s.
+`A5_DB_DUMP=1` in the environment logs every table's columns.
 
-Either way, this is a data-versioning problem, not a porting one: the engine
-code that reads the format it was written for is running on device.
+Two details that matter: column names in the file are windows-1251 bytes and the
+staged sources are UTF-8, and one source column name really does contain a
+Cyrillic letter (`DamageMоd`); the loader converts. Relation tables
+(`RPGPers2Scripts`) are not in the file, so `ImportRelation` returns empty lists.
 
 ### 2. `Image` — done
 
@@ -67,63 +88,54 @@ and is not part of the runtime. `platform/dxt_decode.cpp` decodes DXT1/3/5 in
 software for GPUs without `GL_EXT_texture_compression_s3tc` and for the harness,
 which checks decoded mean colour against the header's `dwAverageColor`.
 
-### 3. `Main` — compiles, except the D3D9 backend
+### 3. `Main` — done: 269/269 files build, link and run
 
-264 of the 269 files Main.vcproj builds now compile for arm64 (and on the
-host). Getting there was almost entirely a matter of MSVC 7 leniencies handled
-once, as mechanical passes or rules in `prepare_sources.py` — see "Traps" below
-for the list. Every remaining piece of x86 inline assembly is gone: the MMX
-skinning in `GCombiner.cpp` (verified against float within 0.01), the particle
-colour modulate (bit-exact against an emulation of the instruction sequence),
-the bilinear resample and the 2D blend in the software paths, and the MMX AABB
-accumulator.
+Getting there was almost entirely a matter of MSVC 7 leniencies handled once, as
+mechanical passes or rules in `prepare_sources.py` — see "Traps" below for the
+list. Every remaining piece of x86 inline assembly is gone: the MMX skinning in
+`GCombiner.cpp` (verified against float within 0.01), the particle colour
+modulate (bit-exact against an emulation of the instruction sequence), the
+bilinear resample and the 2D blend in the software paths, the MMX AABB
+accumulator, and the MMX `ReallyFastShiftingTransfer` in the vertex-buffer path.
 
-The five files that do not compile are exactly the Direct3D 9 backend:
-`Gfx.cpp`, `GfxBuffers.cpp`, `GfxRender.cpp`, `GfxEffects.cpp`, and the
-`GfxShadersDescr.h` include chain (plus `GGeometryUtil.cpp`, which touches
-`IDirect3D` types). Together with `GfxInternal.h`/`GfxBuffersInternal.h` that is
-about **6,500 lines**, and the whole D3D9 surface they use is **~40
-`IDirect3DDevice9` methods**:
+The Direct3D 9 backend (`Gfx.cpp`, `GfxBuffers.cpp`, `GfxRender.cpp`,
+`GfxEffects.cpp`, `GfxShaders.cpp` — ~6,500 lines) is **kept as written** and
+runs on a Direct3D 9 implementation over GLES 3.0:
+`compat/d3d9gles/d3d9.h` + `d3d9gles.cpp` (~2,000 lines). The full contract that
+implementation honours — the ~40 device methods, the three vertex formats, the
+constant-register map, the render-target model, the coordinate-system
+differences — is [RENDERER.md](RENDERER.md). In short:
 
-```
-SetSamplerState ×21  Clear ×9  SetTexture ×6  SetRenderState ×5  SetIndices ×4
-DrawIndexedPrimitive ×4  Begin/EndScene  SetVertex/PixelShader  SetVertexDeclaration
-SetStreamSource  CreateTexture  CreateDepthStencilSurface  CopyRects  SetRenderTarget
-Set*ShaderConstantF  SetTransform  SetMaterial/SetLight/LightEnable  SetGammaRamp
-SetFVF  Reset  Present  GetFrontBufferData  DrawPrimitive  CreateVertexShader
-CreateVertexDeclaration  CreateQuery  UpdateSurface  ValidateDevice
-```
+* framebuffer memory is always in D3D layout (row 0 at the top); every draw goes
+  into an FBO with a y-flip in the vertex shader (`posFixup`), which is why the
+  cull mode is inverted and `Present` is a flipped `glBlitFramebuffer` into the
+  EGL surface, letterboxed to the requested mode (1024×768 by default)
+* the 155 D3D shader-assembly programs the engine embeds (`GfxShadersDescr.h`)
+  are recovered by `tools/extract_shaders.py` and translated to GLSL ES 3.00 by
+  `tools/d3dasm2glsl.py`; the runtime finds a program by the FNV-1a hash of the
+  assembly text (`shaders/glsl_table.cpp`) and links per (vs, ps, cube-sampler
+  mask). All 155 compile and draw on the Adreno 830 (`platform/d3d_selftest.cpp`)
+* textures keep a CPU shadow so `LockRect` works; DXT goes to the GPU when
+  `GL_EXT_texture_compression_s3tc` is there and through `platform/dxt_decode.cpp`
+  otherwise; vertex/index buffers keep a shadow with dirty ranges (`MarkDirty`,
+  hinted from the engine's own lock calls by a staging rule) so the 32-bit
+  index streaming path costs one upload per lock
 
-That is the next chapter of the port, and it is well bounded. The full
-contract — every function the other 264 files call, the three vertex formats,
-the constant-register map, the 155 shaders by name, the register bank and
-render-target model — is written up in [RENDERER.md](RENDERER.md). The shape:
-
-* keep `Gfx.h`/`GScene.h` (the interface the other 260 files talk to) exactly
-  as is, and rewrite the five files behind it on **GLES 3.0**
-* `GfxBuffers.cpp` is already an allocator over device vertex/index buffers —
-  maps onto GL buffer objects almost 1:1
-* `GfxShaders.cpp` compiles D3D9 vertex/pixel shader *assembly*
-  (`GfxShadersDescr.h`). Hand-write GLSL for the handful of material paths the
-  game actually uses rather than translating the assembler
-* fixed-function state (`SetRenderState`, `SetTextureStageState`,
-  `SetMaterial`/`SetLight`) becomes explicit GL state and uniforms
-* the EGL context the boot console creates (`platform/android_main.cpp`) is the
-  surface to render into; `platform/dxt_decode.cpp` covers devices without
-  `GL_EXT_texture_compression_s3tc`
-
-Once those five files build, Main links, and `Game/Main.cpp`'s WinMain
-sequence (`AddResourceDir`, `game.db`, `InitApplication`, the frame loop) can be
-driven from `android_main`.
+`platform/game_entry.cpp` is `Game/Main.cpp`'s WinMain in three calls
+(`a5_game_init` / `a5_game_step` / `a5_game_shutdown`), driven by
+`android_main.cpp` once the boot harness passes and data is mounted.
 
 ### 4. Input, audio, video
 
-* **Input**: `Input/Input.h` is staged and is the seam — a clean, DirectInput-free
-  interface (`InitInput`, `PumpMessages`, `GetMessage(SMessage*)`,
-  `GetControlID`). `Input.cpp` (DirectInput) is never built; the Android layer
-  implements `Input.h` from touch/key events. `Bind.cpp` (action mapping) is
-  portable and sits on top. A turn-based tactical game maps reasonably onto
-  touch, but the port will need a camera-control scheme of its own.
+* **Input**: `Input/Input.h` is the seam — a clean, DirectInput-free interface
+  (`InitInput`, `PumpMessages`, `GetMessage(SMessage*)`, `GetControlID`).
+  `platform/input_android.cpp` implements it: a control table with the original
+  control names mapped to Android key codes, mouse buttons and wheel; touches
+  become an absolute pointer position (`a5_set_pointer_position`) that
+  `Cursor.cpp` reads in preference to integrated deltas (staging rule).
+  `Bind.cpp` (action mapping) is portable and sits on top. A turn-based tactical
+  game maps reasonably onto touch, but the port still needs a camera-control
+  scheme of its own (pinch/drag → the camera binds).
 * **Audio**: `FModSound/FMsound.h` is staged and `platform/audio_null.cpp`
   implements the whole `NFMSound` interface silently — every call succeeds and
   hands back a live handle, so the game runs without sound. The real back end
@@ -173,6 +185,24 @@ forward-declared enums (`enum E;` → `enum E : int;` plus the definition),
 declarations, `typeid` on incomplete types in the class factory, and the
 `CPtr<T> == T*` overload ambiguity.
 
+**RTTI: MSVC lets you `dynamic_cast` from the wrong subobject; Itanium does
+not.** The engine casts opaque pointers to `(CObjectBase*)` — forward-declared
+`NGfx::CTexture*`, `void*` command contexts — and then `dynamic_cast`s. That is a
+reinterpret_cast; MSVC's RTTI still finds the complete object from whatever vptr
+is at that address, libc++abi looks for a `CObjectBase` subobject there, finds
+none (it is a *virtual* base, at the end of the object) and returns null.
+Symptom: every `CDynamicCast<I2DBuffer>( pTexture )` null, first texture load
+crashes. `compat/src/rtti_compat.cpp` (`a5_cast_opaque<T>()`) does what MSVC did
+— vptr → complete object and its `type_info` → walk the ABI's base-class
+descriptors to the destination — and `CDynamicCast` and the `pContext` sites go
+through it (staging rules). Any *new* `(CObjectBase*)something` cast is suspect.
+
+**`LONG` is 32 bits.** The engine casts `CTRect<int>*` to `RECT*` and
+`CTPoint<int>*` to `POINT*` when calling D3D (`GfxBuffers.cpp`'s texture
+locker). With `typedef long LONG` on LP64 those structs double in size and the
+lock rectangle reads garbage — a write 2^50 bytes past the texture. The compat
+`windows.h` now types `LONG` as `int`, as Win32 does.
+
 **`lua_dobuffer` does not run the chunk.** It parses and *starts* it on a Lua
 thread; `lua_executeThreads()` is commented out in `ldo.cpp` because the engine
 pumps threads from its frame loop. Call `Script::ExecuteThreads()` or nothing
@@ -191,8 +221,9 @@ the app cannot enter them. `scripts/push_data.sh` chmods the tree afterwards.
 * **`MemoryMngr`** replaces global `operator new`/`delete` and walks the PE
   import table for symbol names. Drop it; keep `DumbPow2Alloc` only if profiling
   says the system allocator is a problem.
-* **`ADOImport`** is COM/ADO against SQL Server, used at content-build time. The
-  shipping game already links `ADOFake` instead, so the runtime never needs it.
+* **`ADOImport`** is COM/ADO against SQL Server, used at content-build time. Its
+  *driver* logic is what `platform/db_retail.cpp` re-creates over the retail
+  `game.db`; the COM part is never built.
 * **`MapEdit`** (362 files) is MFC. It is a desktop tool, not part of the game.
 * **The `.def` files.** Each module was a DLL exporting mangled C++ symbols. On
   Android everything links into one `.so`; `externA5` becomes plain `extern`.
@@ -206,6 +237,12 @@ and is the port's regression test. It runs in two places from the same source:
 * on the host, headless: `build/host/silentstorm_hosttest <game-data-dir>`,
   exit code 0 when everything passes
 
-Add a check there whenever a subsystem starts working. The host target builds in
+Add a check there whenever a subsystem starts working. Past the harness, the
+game itself runs on device only (it needs the GLES device): `scripts/build.sh
+arm64-v8a && scripts/build_apk.sh arm64-v8a && scripts/run.sh`, then
+`adb logcat -s SilentStorm` — the loop logs `game: N steps, M presents,
+interface depth D` every five seconds, and the D3D shim warns on anything it
+refuses. Note `build_apk.sh` only builds ABIs whose library is *missing*; rebuild
+the library explicitly after source changes. The host target builds in
 seconds and is debuggable with lldb, which is how the 64-bit stream bug above was
 found — do not debug engine logic on a device if the host can reproduce it.

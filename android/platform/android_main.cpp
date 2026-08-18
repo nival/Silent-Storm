@@ -14,10 +14,16 @@
 #include <android/log.h>
 #include <android/window.h>
 #include <jni.h>
+#include <time.h>
 
 #include "boot_harness.h"
 #include "gles_present.h"
 #include "windows.h"
+#include "d3d9.h"
+#include "a5_input.h"
+#ifdef A5_HAVE_MAIN
+#include "game_entry.h"
+#endif
 
 #define LOG_TAG "SilentStorm"
 #define LOGI( ... ) __android_log_print( ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__ )
@@ -25,9 +31,17 @@
 
 namespace {
 
+/*  Mode of the activity: the boot console (engine core checks on screen) or
+ *  the game itself.  The game runs when Main is linked and the boot checks
+ *  passed with game data mounted; otherwise the console stays up and says why. */
+enum ERunMode { RUN_CONSOLE, RUN_GAME };
+
 struct SEngineState
 {
     android_app *pApp        = 0;
+    ERunMode     mode        = RUN_CONSOLE;
+    bool         bGameRunning = false;
+    bool         bSurfaceAlive = false;
 
     EGLDisplay display       = EGL_NO_DISPLAY;
     EGLSurface surface       = EGL_NO_SURFACE;
@@ -39,9 +53,10 @@ struct SEngineState
     SBootReport  report;
     bool         bHarnessRun = false;
 
-    /* Touch scrolling. */
+    /* Touch scrolling (console) / pointer (game). */
     bool  bTouching          = false;
     float fLastTouchY        = 0.0f;
+    int   nTouchCount        = 0;
 
     std::string szExternalFilesDir;
     std::string szInternalFilesDir;
@@ -85,6 +100,18 @@ std::string GetActivityDirectory( android_app *pApp, const char *pszMethod,
     pApp->activity->vm->DetachCurrentThread();
     return szResult;
 }
+
+SEngineState *g_pState = 0;
+int  HookWindowWidth()  { return g_pState ? g_pState->nWidth : 0; }
+int  HookWindowHeight() { return g_pState ? g_pState->nHeight : 0; }
+static int g_nPresents = 0;
+void HookPresent()
+{
+    ++g_nPresents;
+    if ( g_pState && g_pState->display != EGL_NO_DISPLAY )
+        eglSwapBuffers( g_pState->display, g_pState->surface );
+}
+int  HookSurfaceAlive() { return g_pState && g_pState->bSurfaceAlive ? 1 : 0; }
 
 bool InitDisplay( SEngineState *pState )
 {
@@ -134,6 +161,7 @@ bool InitDisplay( SEngineState *pState )
     pState->nHeight = nHeight;
 
     LOGI( "EGL surface %dx%d", nWidth, nHeight );
+    pState->bSurfaceAlive = true;
 
     if ( !pState->console.Init() )
         return false;
@@ -143,6 +171,7 @@ bool InitDisplay( SEngineState *pState )
 
 void TerminateDisplay( SEngineState *pState )
 {
+    pState->bSurfaceAlive = false;
     pState->console.Shutdown();
     if ( pState->display != EGL_NO_DISPLAY )
     {
@@ -169,11 +198,63 @@ void DrawFrame( SEngineState *pState )
 int32_t HandleInput( android_app *pApp, AInputEvent *pEvent )
 {
     SEngineState *pState = (SEngineState *)pApp->userData;
+    if ( AInputEvent_getType( pEvent ) == AINPUT_EVENT_TYPE_KEY )
+    {
+        const int32_t nKeyAction = AKeyEvent_getAction( pEvent );
+        const int32_t nKey = AKeyEvent_getKeyCode( pEvent );
+        if ( pState->mode == RUN_GAME && ( nKeyAction == AKEY_EVENT_ACTION_DOWN || nKeyAction == AKEY_EVENT_ACTION_UP ) )
+        {
+            /* Back is the game's Escape */
+            a5_input_key( nKey == AKEYCODE_BACK ? AKEYCODE_ESCAPE : nKey, nKeyAction == AKEY_EVENT_ACTION_DOWN );
+            return 1;
+        }
+        return 0;
+    }
     if ( AInputEvent_getType( pEvent ) != AINPUT_EVENT_TYPE_MOTION )
         return 0;
 
     const int32_t nAction = AMotionEvent_getAction( pEvent ) & AMOTION_EVENT_ACTION_MASK;
+    const float   fX      = AMotionEvent_getX( pEvent, 0 );
     const float   fY      = AMotionEvent_getY( pEvent, 0 );
+
+    if ( pState->mode == RUN_GAME )
+    {
+        /* Touch -> the engine's cursor (absolute, in back-buffer pixels) and
+         * mouse buttons: one finger = left button, a second finger = right. */
+        float fBackX = 0, fBackY = 0;
+        const bool bInside = A5D3DWindowToBackBuffer( fX, fY, &fBackX, &fBackY ) != 0;
+        if ( bInside )
+            a5_set_pointer_position( (long)fBackX, (long)fBackY );
+        switch ( nAction )
+        {
+            case AMOTION_EVENT_ACTION_DOWN:
+                pState->nTouchCount = 1;
+                a5_input_mouse_button( 0, 1 );
+                break;
+            case AMOTION_EVENT_ACTION_POINTER_DOWN:
+                ++pState->nTouchCount;
+                if ( pState->nTouchCount == 2 )
+                {
+                    a5_input_mouse_button( 0, 0 );      /* the first finger becomes a right click */
+                    a5_input_mouse_button( 1, 1 );
+                }
+                break;
+            case AMOTION_EVENT_ACTION_POINTER_UP:
+                if ( pState->nTouchCount == 2 )
+                    a5_input_mouse_button( 1, 0 );
+                --pState->nTouchCount;
+                break;
+            case AMOTION_EVENT_ACTION_UP:
+            case AMOTION_EVENT_ACTION_CANCEL:
+                if ( pState->nTouchCount == 1 )
+                    a5_input_mouse_button( 0, 0 );
+                pState->nTouchCount = 0;
+                break;
+            default:
+                break;
+        }
+        return 1;
+    }
 
     switch ( nAction )
     {
@@ -196,6 +277,41 @@ int32_t HandleInput( android_app *pApp, AInputEvent *pEvent )
     return 0;
 }
 
+void StartGameIfPossible( SEngineState *pState )
+{
+#ifdef A5_HAVE_MAIN
+    if ( pState->report.nFailed != 0 || !pState->report.bDataMounted )
+    {
+        LOGI( "game: not starting (checks failed: %d, data mounted: %d) - console stays up",
+              pState->report.nFailed, (int)pState->report.bDataMounted );
+        return;
+    }
+    g_pState = pState;
+    A5D3DPlatformHooks hooks = { HookWindowWidth, HookWindowHeight, HookPresent, HookSurfaceAlive };
+    A5D3DSetPlatformHooks( &hooks );
+    /* the game renders through the D3D shim into its own FBO; the console's
+     * program state must not leak into it, and vice versa */
+    const char *pszError = 0;
+    const int nResult = a5_game_init( &pszError );
+    if ( nResult != 0 )
+    {
+        LOGE( "game: init failed (%d): %s", nResult, pszError ? pszError : "?" );
+        SBootLine line;
+        line.status = BOOT_FAIL;
+        line.szText = std::string( "game init failed: " ) + ( pszError ? pszError : "?" );
+        line.fSeconds = 0;
+        pState->report.lines.push_back( line );
+        ++pState->report.nFailed;
+        return;
+    }
+    pState->mode = RUN_GAME;
+    pState->bGameRunning = true;
+    LOGI( "game: running" );
+#else
+    (void)pState;
+#endif
+}
+
 void HandleCommand( android_app *pApp, int32_t nCommand )
 {
     SEngineState *pState = (SEngineState *)pApp->userData;
@@ -214,6 +330,7 @@ void HandleCommand( android_app *pApp, int32_t nCommand )
                             pState->szExternalFilesDir.c_str(),
                             pState->szInternalFilesDir.c_str() );
                         pState->bHarnessRun = true;
+                        StartGameIfPossible( pState );
                     }
                     pState->console.SetReport( pState->report );
                     DrawFrame( pState );
@@ -271,20 +388,53 @@ void android_main( android_app *pApp )
         int                  nEvents;
         android_poll_source *pSource;
 
-        /* Block when idle: the console is static, so there is no reason to spin.
-         * A real game loop would poll with a 0 timeout and render continuously. */
-        while ( ALooper_pollOnce( -1, 0, &nEvents, (void **)&pSource ) >= 0 )
+        /* Console: block when idle (it is static).  Game: poll and step. */
+        const int nTimeout = state.mode == RUN_GAME && state.bSurfaceAlive ? 0 : -1;
+        while ( ALooper_pollOnce( nTimeout, 0, &nEvents, (void **)&pSource ) >= 0 )
         {
             if ( pSource )
                 pSource->process( pApp, pSource );
             if ( pApp->destroyRequested )
             {
+#ifdef A5_HAVE_MAIN
+                if ( state.bGameRunning )
+                    a5_game_shutdown();
+#endif
                 TerminateDisplay( &state );
                 return;
             }
-            if ( state.bTouching )
-                break;  /* redraw promptly while dragging */
+            if ( state.bTouching || state.mode == RUN_GAME )
+                break;
         }
-        DrawFrame( &state );
+        if ( state.mode == RUN_GAME )
+        {
+#ifdef A5_HAVE_MAIN
+            if ( state.bSurfaceAlive && state.bGameRunning )
+            {
+                static int nSteps = 0;
+                static double fLastLog = 0;
+                ++nSteps;
+                {
+                    struct timespec ts; clock_gettime( CLOCK_MONOTONIC, &ts );
+                    const double fNow = ts.tv_sec + ts.tv_nsec * 1e-9;
+                    if ( fNow - fLastLog > 5.0 )
+                    {
+                        fLastLog = fNow;
+                        LOGI( "game: %d steps, %d presents, interface depth %d", nSteps, g_nPresents, a5_game_interface_depth() );
+                    }
+                }
+                if ( !a5_game_step( 1 ) )
+                {
+                    LOGI( "game: asked to exit" );
+                    a5_game_shutdown();
+                    state.bGameRunning = false;
+                    state.mode = RUN_CONSOLE;
+                    state.console.SetReport( state.report );
+                }
+            }
+#endif
+        }
+        else
+            DrawFrame( &state );
     }
 }

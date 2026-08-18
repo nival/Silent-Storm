@@ -1252,9 +1252,15 @@ extern "C" int _findclose( intptr_t hFile )
 
 extern "C" UINT GetDoubleClickTime( void ) { return A5_DOUBLE_CLICK_MS; }
 
-namespace { long g_nPointerX = 0, g_nPointerY = 0; }
-extern "C" void a5_set_pointer_position( long x, long y ) { g_nPointerX = x; g_nPointerY = y; }
-extern "C" void a5_get_pointer_position( long *px, long *py ) { if ( px ) *px = g_nPointerX; if ( py ) *py = g_nPointerY; }
+namespace { long g_nPointerX = 0, g_nPointerY = 0; bool g_bPointerSeen = false; }
+extern "C" void a5_set_pointer_position( long x, long y ) { g_nPointerX = x; g_nPointerY = y; g_bPointerSeen = true; }
+extern "C" int  a5_get_pointer_absolute( LONG *px, LONG *py )
+{
+    if ( !g_bPointerSeen ) return 0;
+    if ( px ) *px = g_nPointerX; if ( py ) *py = g_nPointerY;
+    return 1;
+}
+extern "C" void a5_get_pointer_position( LONG *px, LONG *py ) { if ( px ) *px = g_nPointerX; if ( py ) *py = g_nPointerY; }
 
 /* ------------------------------------------------------------------------- */
 /*  Window geometry (see the note in windows.h)                                */

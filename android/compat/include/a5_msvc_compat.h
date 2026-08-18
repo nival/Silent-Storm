@@ -38,6 +38,17 @@
 #  define externA5 extern
 #endif
 
+/* ----- RTTI: dynamic_cast from a pointer of unknown static type ------------ */
+#ifdef __cplusplus
+#include <typeinfo>
+/*  p points somewhere into a polymorphic object (its complete address or any
+ *  vptr-bearing subobject); returns the `dst` subobject or 0.  See
+ *  compat/src/rtti_compat.cpp for why the engine needs this. */
+void *a5_dynamic_cast_from_opaque( const void *p, const std::type_info &dst );
+template< class T >
+inline T *a5_cast_opaque( const void *p ) { return static_cast< T * >( a5_dynamic_cast_from_opaque( p, typeid( T ) ) ); }
+#endif
+
 /* ----- CRT spelling differences ------------------------------------------- */
 #ifdef __cplusplus
 extern "C" {

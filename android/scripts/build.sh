@@ -39,6 +39,7 @@ for ABI in "${ABIS[@]}"; do
         -DANDROID_ABI="$ABI" \
         -DANDROID_PLATFORM=android-24 \
         -DANDROID_NDK="$NDK" \
+        -DA5_BUILD_MAIN="${A5_BUILD_MAIN:-ON}" \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo >/dev/null
     cmake --build "$ANDROID_DIR/build/$ABI"
 done

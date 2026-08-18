@@ -64,10 +64,12 @@ else
             [ -f "$SOURCE/Textures/$id" ] && "$ADB" push "$SOURCE/Textures/$id" "$TARGET/Textures/" >/dev/null
         done
     fi
-    # game.db: the repository's Data/ copy is the source-format one; see PORTING.md.
-    if [ -f "$SOURCE/../Data/game.db" ]; then
-        "$ADB" push "$SOURCE/../Data/game.db" "$TARGET/game.db" >/dev/null
-    fi
+    # game.db: Complete/game.db is the full retail database (34 MB, 155
+    # tables); Data/game.db is a 3 MB development cut of it (RPGWeaponTypes
+    # has one row there, and weapons that reference the others crash the
+    # import).  Both are the same generic-table format platform/db_retail.cpp
+    # reads.
+    "$ADB" push "$SOURCE/game.db" "$TARGET/game.db" >/dev/null
 fi
 
 # adb creates directories as the `shell` user with mode 0770, which the app's

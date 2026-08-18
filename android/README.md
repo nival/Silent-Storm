@@ -5,14 +5,17 @@ this repository (`Soft/Andy/Jan03/a5dll`). The original targets Win32, DirectX 8
 MSVC .NET 2003 and STLport; this directory builds the same code with the Android
 NDK (clang/libc++) for `arm64-v8a`, `armeabi-v7a` and `x86_64`.
 
-**Status: the engine core runs on Android, and the game module compiles.** File
-I/O, the chunk serialiser, the `.res` package reader, the object model, the
-`game.db` schema, texture loading and the Lua 4 VM are ported and verified
-against real game data on device. `Main` — the renderer, scene, AI, UI and game
-logic, 154k lines — compiles for arm64 in 264 of its 269 files; the five that
-remain are the Direct3D 9 backend, which needs a GLES implementation behind the
-engine's own `Gfx.h` interface. See [docs/PORTING.md](docs/PORTING.md) for the
-scope of that and the order things should happen in.
+**Status: the whole engine builds, links and runs on Android; the game reaches
+its first screen.** File I/O, the chunk serialiser, the `.res` package reader,
+the object model, the Lua 4 VM, texture loading and the retail `game.db`
+importer are verified against real game data on device. `Main` — the renderer,
+scene, AI, UI and game logic, 154k lines — compiles for arm64 in all 269 of its
+files; the Direct3D 9 backend runs on a D3D9-on-GLES 3.0 implementation
+(`compat/d3d9gles/`, all 155 engine shaders translated). On a Galaxy Z Fold7 the
+game loop runs at ~120 fps into a 1024×768 virtual back buffer; what it draws is
+still being brought up (the intermission screen's clear colour is there, the UI
+text is not yet). See [docs/PORTING.md](docs/PORTING.md) for the state of each
+piece and what comes next.
 
 The app currently boots, mounts your game data, exercises those subsystems and
 shows the result on screen through GLES 2.0:
@@ -93,10 +96,10 @@ That list *is* the port's diff against 2003. Everything else is new code in
 | `FileIO` | streams, chunk serialiser, `.res` packages | ported, verified |
 | `Script` | Lua 4.0 + the engine's C++ wrapper | ported, verified |
 | `MiscDll` | console variables/commands, log streams | ported (builds) |
-| `DBFormat` | the `game.db` schema (130 record classes) | ported, runs; shipped `game.db` files are a newer format than this source — see PORTING.md |
+| `DBFormat` | the `game.db` schema (130 record classes) | ported; `platform/db_retail.cpp` imports the shipped (retail-format) `game.db`: 130/130 tables, 222k records |
 | `Image` + libpng | BMP/TGA/PNG and MMP/DXT textures | ported, verified (real textures decode to their stored average colour) |
-| `Main` | renderer, scene, AI, UI, game logic (154k lines) | 264/269 files compile for arm64; the 5 left are the D3D9 backend (~6.5k lines, ~40 device calls) — see PORTING.md |
-| `Input` | DirectInput | `Input.h` staged as the seam for a touch layer |
+| `Main` | renderer, scene, AI, UI, game logic (154k lines) | 269/269 files build and link; runs on device over `compat/d3d9gles` (D3D9 on GLES 3.0, 155 shaders) — see RENDERER.md |
+| `Input` | DirectInput | `platform/input_android.cpp` implements `Input.h` from Android keys and touch |
 | `FModSound` | FMOD 3 wrapper | `NFMSound` implemented as a silent null back end |
 
 ## Notable things the port had to fix

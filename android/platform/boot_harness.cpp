@@ -375,9 +375,9 @@ void CheckGameScripts( CReport *pReport, const SDataMountResult &mount )
 /*  The whole object database.  Game/Main.cpp does exactly this at start-up:
  *  open game.db, NDatabase::Serialize( f, READ ).  Every record class in
  *  DBFormat/ deserialises itself through operator&, and every cross-record
- *  reference is resolved through CDBPtr -- so this is DBFormat, ADOFake, the
- *  chunk serialiser and the class factory all working together over 3.3 MB of
- *  real data. */
+ *  reference is resolved through CDBPtr -- so this is DBFormat, db_retail,
+ *  the chunk serialiser and the class factory all working together over
+ *  3.3 MB (Data/) or 34 MB (Complete/) of real data. */
 void CheckGameDatabase( CReport *pReport, const SDataMountResult &mount )
 {
     pReport->Add( BOOT_HEADING, 0, "DBFormat: game.db object database" );
@@ -393,35 +393,13 @@ void CheckGameDatabase( CReport *pReport, const SDataMountResult &mount )
         return;
     }
 
-    /*  Format check first.  This source snapshot (January 2003) stores the
-     *  database as hash_map<int, CDBTableBase> with each table's records
-     *  serialised through the record classes' own operator&.  The retail
-     *  game.db files in the repository (Data/, Complete/, Versions/) were
-     *  written by a later build in which every table is a heap object of a
-     *  class registered as 0xA1843130, holding a uniform column layout in
-     *  chunks 2..8 -- a format this source has no schema for.  Detect that up
-     *  front so the outcome is reported for what it is: a data/source version
-     *  mismatch, not a porting fault. */
-    {
-        CFileStream probe;
-        if ( probe.TryOpenRead( "game.db" ) && probe.GetSize() > 16 )
-        {
-            unsigned char header[ 16 ] = { 0 };
-            probe.Seek( 0 );
-            probe.Read( header, sizeof( header ) );
-            /* Chunk 4 (a version tag) leading the file, or a table object of
-             * type 0xA1843130, both mark the later format. */
-            const bool bVersionTag = header[ 0 ] == 4 && header[ 1 ] == 8;
-            if ( bVersionTag )
-            {
-                pReport->Add( BOOT_WARN, 0,
-                              "game.db is the retail (post-Jan-2003) format; this source "
-                              "snapshot has no schema for it - see docs/PORTING.md" );
-                return;
-            }
-        }
-    }
-
+    /*  Format note.  This source snapshot (January 2003) has two database
+     *  back ends and every game.db in the repository (Data/, Complete/,
+     *  Versions/) is in neither's native layout: they were written by a later
+     *  build as generic column-store tables (class 0xA1843130).  The Android
+     *  build's platform/db_retail.cpp reads that layout and runs the record
+     *  classes' own ADO-style Import() over it, so the load below is the
+     *  real thing. */
     NHPTimer::STime t;
     NHPTimer::GetTime( &t );
     a5_serializer_reset_unknown_types();

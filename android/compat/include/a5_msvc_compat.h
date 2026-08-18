@@ -141,47 +141,56 @@ char *a5_fullpath( char *absPath, const char *relPath, size_t maxLength );
 #  define _alloca(n) __builtin_alloca(n)
 #endif
 
-/* ----- Wide-character formatting ------------------------------------------
+/* ----- Wide characters ----------------------------------------------------
  *
- *  MSVC's swprintf/vswprintf predate the C99 signatures and take no buffer
- *  size.  These are *overloads* rather than macros, so std::swprintf and the
- *  C99 form keep working: an MSVC-style call passes a const wchar_t* where the
- *  C99 form wants a size_t, so overload resolution picks the wrapper.
+ *  The engine's wide strings are UTF-16 (see compat/src/wide_char.cpp).  The
+ *  staged sources use char16_t, so the wide CRT functions they call need
+ *  char16_t overloads -- libc only provides the wchar_t ones.  These are
+ *  overloads rather than macros, so std::swprintf and the C99 forms keep
+ *  working unchanged.
  *
- *  A5_WIDE_FORMAT_LIMIT is the bound the wrappers supply.  Every ported call
- *  site formats a few characters into a buffer of at least 32 wide chars, so it
- *  never binds -- but that also means these are not safe for arbitrary new
- *  code, which should call swprintf with an explicit size.
+ *  A5_WIDE_FORMAT_LIMIT bounds the formatting wrappers, which MSVC's pre-C99
+ *  signatures give no size for.  Every ported call site formats a few
+ *  characters into a buffer of at least 32; new code should call snprintf and
+ *  convert, rather than relying on this.
  */
 #define A5_WIDE_FORMAT_LIMIT 1024
 
 #ifdef __cplusplus
-#include <wchar.h>
 #include <stdarg.h>
+#include <stddef.h>
 
-inline int vswprintf( wchar_t *pBuffer, const wchar_t *pszFormat, va_list args )
-{
-    return vswprintf( pBuffer, A5_WIDE_FORMAT_LIMIT, pszFormat, args );
+extern "C" {
+size_t    a5_u16len( const char16_t *psz );
+char16_t *a5_u16cpy( char16_t *pDest, const char16_t *pSrc );
+char16_t *a5_u16cat( char16_t *pDest, const char16_t *pSrc );
+int       a5_u16cmp( const char16_t *a, const char16_t *b );
+int       a5_u16_sprintf( char16_t *pBuffer, const char16_t *pszFormat, ... );
+int       a5_u16_vsprintf( char16_t *pBuffer, const char16_t *pszFormat, va_list args );
+char16_t *a5_u16_itoa( int nValue, char16_t *pBuffer, int nRadix );
+double    a5_u16_atof( const char16_t *psz );
+int       a5_u16_atoi( const char16_t *psz );
 }
 
-inline int swprintf( wchar_t *pBuffer, const wchar_t *pszFormat, ... )
+inline size_t    wcslen( const char16_t *psz )                          { return a5_u16len( psz ); }
+inline char16_t *wcscpy( char16_t *pDest, const char16_t *pSrc )        { return a5_u16cpy( pDest, pSrc ); }
+inline char16_t *wcscat( char16_t *pDest, const char16_t *pSrc )        { return a5_u16cat( pDest, pSrc ); }
+inline int       wcscmp( const char16_t *a, const char16_t *b )         { return a5_u16cmp( a, b ); }
+inline int       vswprintf( char16_t *pBuffer, const char16_t *pszFormat, va_list args )
+                                                                        { return a5_u16_vsprintf( pBuffer, pszFormat, args ); }
+inline int       swprintf( char16_t *pBuffer, const char16_t *pszFormat, ... )
 {
     va_list args;
     va_start( args, pszFormat );
-    int nResult = vswprintf( pBuffer, A5_WIDE_FORMAT_LIMIT, pszFormat, args );
+    const int nResult = a5_u16_vsprintf( pBuffer, pszFormat, args );
     va_end( args );
     return nResult;
 }
 
-extern "C" wchar_t *a5_itow( int nValue, wchar_t *pBuffer, int nRadix );
-extern "C" double   a5_wtof( const wchar_t *psz );
-extern "C" int      a5_wtoi( const wchar_t *psz );
-#ifndef _wtof
-#  define _wtof a5_wtof
-#  define _wtoi a5_wtoi
-#endif
 #ifndef _itow
-#  define _itow a5_itow
+#  define _itow a5_u16_itoa
+#  define _wtof a5_u16_atof
+#  define _wtoi a5_u16_atoi
 #endif
 #endif /* __cplusplus */
 

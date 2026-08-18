@@ -1136,39 +1136,8 @@ extern "C" void a5_debugbreak( const char *pszFile, int nLine )
 #endif
 }
 
-/* ------------------------------------------------------------------------- */
-/*  Character sets                                                             */
-/* ------------------------------------------------------------------------- */
-extern "C" int MultiByteToWideChar( UINT, DWORD, LPCSTR pszMultiByte, int cbMultiByte,
-                                    LPWSTR pszWideChar, int cchWideChar )
-{
-    if ( cbMultiByte < 0 )
-        cbMultiByte = (int)strlen( pszMultiByte ) + 1;
-    if ( cchWideChar == 0 )
-        return cbMultiByte;
-    int n = cbMultiByte < cchWideChar ? cbMultiByte : cchWideChar;
-    for ( int i = 0; i < n; ++i )
-        pszWideChar[ i ] = (WCHAR)(unsigned char)pszMultiByte[ i ];
-    return n;
-}
-
-extern "C" int WideCharToMultiByte( UINT, DWORD, LPCWSTR pszWideChar, int cchWideChar,
-                                    LPSTR pszMultiByte, int cbMultiByte, LPCSTR, LPBOOL )
-{
-    if ( cchWideChar < 0 )
-    {
-        cchWideChar = 0;
-        while ( pszWideChar[ cchWideChar ] )
-            ++cchWideChar;
-        ++cchWideChar;
-    }
-    if ( cbMultiByte == 0 )
-        return cchWideChar;
-    int n = cchWideChar < cbMultiByte ? cchWideChar : cbMultiByte;
-    for ( int i = 0; i < n; ++i )
-        pszMultiByte[ i ] = (char)( pszWideChar[ i ] < 256 ? pszWideChar[ i ] : '?' );
-    return n;
-}
+/*  Character-set conversion lives in wide_char.cpp, together with the codepage
+ *  tables and the char16_t string helpers. */
 
 /* ------------------------------------------------------------------------- */
 /*  .ini files                                                                 */

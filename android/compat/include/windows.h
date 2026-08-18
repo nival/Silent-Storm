@@ -42,13 +42,17 @@ typedef short               SHORT;
 typedef float               FLOAT;
 typedef long long           LONGLONG;
 typedef unsigned long long  ULONGLONG;
-typedef wchar_t             WCHAR;
+/*  WCHAR is 16 bits on Win32.  Android's wchar_t is 32, and the engine's
+ *  on-disk format depends on the narrower type, so WCHAR maps to char16_t and
+ *  the staged sources use char16_t/std::u16string throughout.  See
+ *  compat/src/wide_char.cpp and docs/PORTING.md. */
+typedef char16_t            WCHAR;
 
 typedef char               *LPSTR;
 typedef const char         *LPCSTR;
 typedef WCHAR              *LPWSTR;
 typedef const WCHAR        *LPCWSTR;
-typedef char                TCHAR;
+typedef char                TCHAR;   /* the engine is an ANSI build */
 typedef TCHAR              *LPTSTR;
 typedef const TCHAR        *LPCTSTR;
 typedef void               *LPVOID;
@@ -353,6 +357,12 @@ int MultiByteToWideChar( UINT CodePage, DWORD dwFlags, LPCSTR lpMultiByteStr, in
 int WideCharToMultiByte( UINT CodePage, DWORD dwFlags, LPCWSTR lpWideCharStr, int cchWideChar,
                          LPSTR lpMultiByteStr, int cbMultiByte, LPCSTR lpDefaultChar,
                          LPBOOL lpUsedDefaultChar );
+
+/*  CP_ACP means "the machine's ANSI codepage", which Android does not have.
+ *  The port assumes windows-1251 (the codepage the game data was authored in);
+ *  select 1252 for western data. */
+void a5_set_ansi_codepage( int nCodePage );
+int  a5_get_ansi_codepage( void );
 
 /* ----- Profile (.ini) files ----------------------------------------------- */
 DWORD GetPrivateProfileStringA( LPCSTR sect, LPCSTR key, LPCSTR def,

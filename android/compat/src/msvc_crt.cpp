@@ -181,35 +181,3 @@ extern "C" char *a5_fullpath( char *pszAbsolute, const char *pszRelative, size_t
     extern char *a5_resolve_path( const char *, char *, size_t );
     return a5_resolve_path( pszRelative, pszAbsolute, nMaxLength );
 }
-
-/* ----- Wide-character formatting ------------------------------------------ */
-/*  The swprintf/vswprintf wrappers are inline overloads in a5_msvc_compat.h;
- *  only _itow needs an out-of-line definition. */
-extern "C" wchar_t *a5_itow( int nValue, wchar_t *pBuffer, int nRadix )
-{
-    char szNarrow[ 66 ];
-    a5_itoa( nValue, szNarrow, nRadix );
-    wchar_t *pOut = pBuffer;
-    for ( const char *p = szNarrow; *p; ++p )
-        *pOut++ = (wchar_t)(unsigned char)*p;
-    *pOut = 0;
-    return pBuffer;
-}
-
-/*  _wtof / _wtoi: MSVC's wide-character strtod/atoi.  The engine only ever
- *  passes ASCII digits through these (console variable values), so a narrowing
- *  conversion is sufficient and avoids a locale dependency. */
-extern "C" double a5_wtof( const wchar_t *psz )
-{
-    char szNarrow[ 64 ];
-    size_t i = 0;
-    for ( ; psz && psz[ i ] && i < sizeof( szNarrow ) - 1; ++i )
-        szNarrow[ i ] = psz[ i ] < 128 ? (char)psz[ i ] : '?';
-    szNarrow[ i ] = 0;
-    return atof( szNarrow );
-}
-
-extern "C" int a5_wtoi( const wchar_t *psz )
-{
-    return (int)a5_wtof( psz );
-}

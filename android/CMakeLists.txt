@@ -75,6 +75,7 @@ set(ENGINE_DEFINITIONS
 add_library(a5compat STATIC
     ${COMPAT_DIR}/src/win32compat.cpp
     ${COMPAT_DIR}/src/msvc_crt.cpp
+    ${COMPAT_DIR}/src/wide_char.cpp
 )
 target_include_directories(a5compat PUBLIC ${COMPAT_DIR}/include)
 target_compile_definitions(a5compat PUBLIC ${ENGINE_DEFINITIONS})
@@ -130,6 +131,16 @@ target_link_libraries(a5miscdll PUBLIC a5fileio)
 a5_engine_module(a5script ${SCRIPT_LUA_SOURCES} ${ENGINE_GEN}/Script/Script.cpp)
 target_link_libraries(a5script PUBLIC a5fileio a5miscdll)
 
+#  DBFormat -- the schema of every record in game.db.  ADOFake supplies the
+#  database-source stub the shipping game links in place of ADOImport's COM/ADO
+#  content-import path.
+file(GLOB DBFORMAT_SOURCES ${ENGINE_GEN}/DBFormat/Data*.cpp)
+a5_engine_module(a5dbformat
+    ${DBFORMAT_SOURCES}
+    ${ENGINE_GEN}/ADOFake/BasicDBfake.cpp
+)
+target_link_libraries(a5dbformat PUBLIC a5fileio a5miscdll)
+
 # ---------------------------------------------------------------------------
 #  The application
 # ---------------------------------------------------------------------------
@@ -147,7 +158,7 @@ if(NOT ANDROID)
         ${PLATFORM_DIR}
     )
     target_compile_options(silentstorm_hosttest PRIVATE ${ENGINE_COMPILE_OPTIONS})
-    target_link_libraries(silentstorm_hosttest a5script a5miscdll a5fileio a5misc a5compat)
+    target_link_libraries(silentstorm_hosttest a5script a5dbformat a5miscdll a5fileio a5misc a5compat)
     return()
 endif()
 
@@ -173,7 +184,7 @@ target_include_directories(silentstorm PRIVATE
 target_compile_options(silentstorm PRIVATE ${ENGINE_COMPILE_OPTIONS})
 target_link_libraries(silentstorm
     native_app_glue
-    a5script a5miscdll a5fileio a5misc a5compat
+    a5script a5dbformat a5miscdll a5fileio a5misc a5compat
     android log EGL GLESv2
 )
 

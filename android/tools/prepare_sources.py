@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import sys
+import time
 from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -31,7 +32,11 @@ DEFAULT_OUT = os.path.join(ANDROID_DIR, "gen")
 
 # Modules copied into the Android build tree.  Adding a module here is the first
 # step of porting it; see docs/PORTING.md for the current status of each.
-MODULES = ["Misc", "FileIO", "Script", "MiscDll", "Image", "DBFormat"]
+#  ADOFake provides the database-source stub the shipping game links instead of
+#  ADOImport's COM/ADO code; ADOImport is staged for its BasicDB.h header only.
+#  Main is staged (not built yet) because DBFormat includes two of its headers.
+MODULES = ["Misc", "FileIO", "Script", "MiscDll", "Image", "DBFormat",
+           "ADOFake", "ADOImport", "Main"]
 
 COPY_EXTENSIONS = {".cpp", ".c", ".h", ".hpp", ".inl", ".txt"}
 
@@ -81,6 +86,212 @@ def rewrite_includes(text, module, src_root, case_index, path_for_log):
                 line = '%s"%s"%s' % (prefix, fixed, suffix)
         out_lines.append(line)
     return "\n".join(out_lines)
+
+
+# ---------------------------------------------------------------------------
+#  Mechanical pass: wide characters
+# ---------------------------------------------------------------------------
+#  The engine's wide strings are UTF-16 -- std::wstring is 16-bit on Win32, and
+#  the on-disk format depends on it (CStructureSaver::DataChunkString reads
+#  `nLength / 2` characters and writes `size() * 2` bytes).  Android's wchar_t is
+#  32-bit, which would double every character and corrupt every string read out
+#  of game.db.
+#
+#  -fshort-wchar is not an option: libc++ and bionic are built with 4-byte
+#  wchar_t, and std::wstring's char_traits calls into wmemcpy/wmemcmp.  So the
+#  staged sources move to char16_t/std::u16string, which is exactly UTF-16, and
+#  compat/src/wide_char.cpp supplies the char16_t forms of the wide CRT.
+
+WIDE_SUBSTITUTIONS = [
+    (re.compile(r"\bwstring\b"), "u16string"),
+    (re.compile(r"\bwchar_t\b"), "char16_t"),
+    # L"..." / L'.' string and character literals become u"..." / u'.'
+    (re.compile(r"(?<![A-Za-z0-9_])L(?=[\"'])"), "u"),
+]
+
+#  Constructs that cannot be mapped mechanically.  None appear in the modules
+#  staged today; if one shows up, it needs a decision rather than a rewrite.
+WIDE_UNSUPPORTED = re.compile(
+    r"\b(wostream|wistream|wstringstream|wostringstream|wistringstream|"
+    r"wofstream|wifstream|wfstream|wcout|wcerr|wcin|wclog|wbuffer_convert)\b" )
+
+
+def rewrite_wide_characters(text, rel_path, warnings):
+    unsupported = WIDE_UNSUPPORTED.search(text)
+    if unsupported:
+        warnings.append("%s uses %s, which has no char16_t equivalent in libc++"
+                        % (rel_path, unsupported.group(1)))
+        return text
+    for pattern, replacement in WIDE_SUBSTITUTIONS:
+        text, count = pattern.subn(replacement, text)
+        stats["wide-char"] += count
+    return text
+
+
+# ---------------------------------------------------------------------------
+#  Mechanical pass: forward-declared enums
+# ---------------------------------------------------------------------------
+#  The engine forward-declares enums freely (`enum EPose;`) and uses them as
+#  fields.  MSVC allowed that because its unscoped enums are always int-sized;
+#  ISO C++ only permits an opaque enum declaration when the underlying type is
+#  fixed.  Spelling `enum EPose : int;` says exactly what MSVC assumed -- and the
+#  *definition* has to carry the same `: int`, or clang rejects the mismatch.
+#
+#  So: every opaque declaration gets `: int`, and every definition of an enum
+#  that is forward-declared anywhere in the tree gets it too.  Enums that are
+#  never forward-declared are left alone.
+
+ENUM_FORWARD_RE = re.compile(r"^(\s*)enum\s+([A-Za-z_]\w*)\s*;", re.MULTILINE)
+# `enum Name` followed (possibly after a newline) by `{`, but not `: type` and
+# not `class`/`struct`.  Only names in FORWARD_DECLARED_ENUMS are rewritten.
+ENUM_DEFINITION_RE = re.compile(
+    r"^(\s*)enum\s+([A-Za-z_]\w*)(\s*)(?=\{|\n\s*\{)", re.MULTILINE)
+
+
+def collect_forward_declared_enums(src_root, modules):
+    names = set()
+    for module in modules:
+        module_dir = os.path.join(src_root, module)
+        if not os.path.isdir(module_dir):
+            continue
+        for name in os.listdir(module_dir):
+            if os.path.splitext(name)[1].lower() not in (".h", ".hpp", ".cpp"):
+                continue
+            with open(os.path.join(module_dir, name), "rb") as f:
+                raw = f.read()
+            try:
+                text = raw.decode("cp1251")
+            except UnicodeDecodeError:
+                text = raw.decode("latin-1")
+            for m in ENUM_FORWARD_RE.finditer(text):
+                names.add(m.group(2))
+    return names
+
+
+def rewrite_enum_forward_declarations(text, forward_declared):
+    def fix_forward(m):
+        stats["enum-forward"] += 1
+        return "%senum %s : int;" % (m.group(1), m.group(2))
+
+    def fix_definition(m):
+        if m.group(2) not in forward_declared:
+            return m.group(0)
+        stats["enum-definition"] += 1
+        return "%senum %s : int%s" % (m.group(1), m.group(2), m.group(3))
+
+    text = ENUM_FORWARD_RE.sub(fix_forward, text)
+    text = ENUM_DEFINITION_RE.sub(fix_definition, text)
+    return text
+
+
+# ---------------------------------------------------------------------------
+#  Mechanical pass: `typename` on dependent iterator types
+# ---------------------------------------------------------------------------
+#  Inside a template, `vector<T>::iterator i;` needs `typename` in ISO C++
+#  because the compiler cannot know that ::iterator names a type until T is
+#  bound.  MSVC 7 resolved it lazily and never asked.  The engine writes this
+#  form throughout (118 sites in Main alone), so it is handled here rather
+#  than rule by rule.
+#
+#  The pass is conservative: it only touches a `Container<...>::iterator`
+#  declaration when a template parameter of the *innermost enclosing template*
+#  appears inside the angle brackets.  Non-dependent uses (`vector<int>::
+#  iterator`) are left alone, where `typename` would be a (harmless) noise word.
+
+TEMPLATE_HEADER_RE = re.compile(r"template\s*<([^<>]*(?:<[^<>]*>[^<>]*)*)>")
+ITERATOR_DECL_RE = re.compile(
+    r"(?<![\w:])((?:std::)?(?:vector|list|map|multimap|set|multiset|hash_map|hash_set|"
+    r"hash_multimap|deque)\s*<((?:[^<>]|<(?:[^<>]|<[^<>]*>)*>)*)>\s*::\s*"
+    r"(?:const_)?(?:reverse_)?iterator)\b(?=\s+[A-Za-z_])")
+
+
+def template_parameters(header_text):
+    """Names declared in a template<...> parameter list."""
+    names = set()
+    for part in header_text.split(","):
+        tokens = re.findall(r"[A-Za-z_]\w*", part)
+        if tokens:
+            # `class T`, `typename T`, `int N`, `class T = Foo` -> the declared name
+            # is the last identifier before any '=' default.
+            before_default = part.split("=")[0]
+            ids = re.findall(r"[A-Za-z_]\w*", before_default)
+            if ids:
+                names.add(ids[-1])
+    return names
+
+
+def rewrite_dependent_iterators(text):
+    # Walk the file, tracking the most recent template<...> header seen; a
+    # template body ends well before the next header, so "most recent" is a
+    # sound approximation for the engine's declaration style.
+    out = []
+    pos = 0
+    current_params = set()
+    events = sorted(
+        [(m.start(), "tmpl", m) for m in TEMPLATE_HEADER_RE.finditer(text)] +
+        [(m.start(), "iter", m) for m in ITERATOR_DECL_RE.finditer(text)])
+    for start, kind, m in events:
+        if kind == "tmpl":
+            current_params = template_parameters(m.group(1))
+            continue
+        inner = m.group(2)
+        if not current_params:
+            continue
+        if not any(re.search(r"\b%s\b" % re.escape(p), inner) for p in current_params):
+            continue
+        # Already qualified?
+        if text[max(0, start - 9):start].rstrip().endswith("typename"):
+            continue
+        out.append(text[pos:start])
+        out.append("typename ")
+        pos = start
+        stats["typename"] += 1
+    out.append(text[pos:])
+    return "".join(out)
+
+
+# ---------------------------------------------------------------------------
+#  Mechanical pass: condition declarations with parenthesised initialisers
+# ---------------------------------------------------------------------------
+#  `if ( CDynamicCast<T> p( expr ) )` -- a declaration in an if condition with a
+#  direct-init parenthesised initialiser.  ISO C++ only allows `= expr` (or a
+#  braced initialiser) there; MSVC 7 accepted the parenthesised form.  The
+#  engine uses this idiom for every downcast (~110 sites in Main).  Rewriting to
+#  `if ( CDynamicCast<T> p = expr )` is exactly equivalent: CDynamicCast's
+#  constructors are implicit, so copy-initialisation picks the same one.
+#
+#  A tiny parser is used rather than a regex so nested parentheses inside the
+#  initialiser (`p( Create( a, b ) )`) are balanced correctly.
+
+CONDITION_DECL_RE = re.compile(
+    r"\b(if|while)\s*\(\s*(CDynamicCast\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*)([A-Za-z_]\w*)\s*\(")
+
+
+def rewrite_condition_declarations(text):
+    out = []
+    pos = 0
+    for m in CONDITION_DECL_RE.finditer(text):
+        if m.start() < pos:
+            continue
+        # m.end() is just past the initialiser's opening '('.  Find its match.
+        depth = 1
+        i = m.end()
+        while i < len(text) and depth:
+            c = text[i]
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+            i += 1
+        if depth:
+            continue  # unbalanced -- leave it alone
+        initialiser = text[m.end():i - 1].strip()
+        out.append(text[pos:m.start()])
+        out.append("%s ( %s%s = %s" % (m.group(1), m.group(2), m.group(3), initialiser))
+        pos = i
+        stats["condition-decl"] += 1
+    out.append(text[pos:])
+    return "".join(out)
 
 
 # ---------------------------------------------------------------------------
@@ -545,19 +756,6 @@ public:                                                                         
         "a.CBase::Get()",
     ),
     (
-        "FileIO/BasicChunk1.h",
-        "Add the 'typename' ISO C++ requires before a dependent type name "
-        "(std::list<T1,T2>::iterator).",
-        "for ( std::list<T1,T2>::iterator k = data.begin();",
-        "for ( typename std::list<T1,T2>::iterator k = data.begin();",
-    ),
-    (
-        "FileIO/BasicChunk1.h",
-        "Same for std::hash_map<...>::iterator.",
-        "for ( std::hash_map<T1,T2,T3,T4>::iterator pos = data.begin();",
-        "for ( typename std::hash_map<T1,T2,T3,T4>::iterator pos = data.begin();",
-    ),
-    (
         "FileIO/BasicChunk1.cpp",
         "list::push_back() with no argument was an MSVC extension; resize() "
         "default-constructs the new element the same way.",
@@ -675,6 +873,388 @@ RULES += [
     ),
 ]
 
+RULES += [
+    (
+        "Misc/Geom.h",
+        "SHMatrix's anonymous union holds CVec3/CVec4 members that declare "
+        "their own (empty) constructors.  ISO C++ then deletes SHMatrix's "
+        "implicit default constructor; MSVC 7 did not.  Declare one, empty like "
+        "the originals, so `SHMatrix m;` stays valid and uninitialised.",
+        """	bool HomogeneousInverse( const SHMatrix &m );
+	const CVec3 GetTranslation() const { return CVec3( _14, _24, _34 ); }
+};""",
+        """	bool HomogeneousInverse( const SHMatrix &m );
+	const CVec3 GetTranslation() const { return CVec3( _14, _24, _34 ); }
+	// [android] anonymous-union members with constructors delete the implicit
+	// default constructor under ISO C++; the original relied on MSVC accepting it.
+	SHMatrix() {}
+};""",
+    ),
+    (
+        "Misc/Geom.h",
+        "SFBTransform holds two SHMatrix; same fix.",
+        """struct SFBTransform
+{
+	SHMatrix forward, backward;
+};""",
+        """struct SFBTransform
+{
+	SHMatrix forward, backward;
+	SFBTransform() {}  // [android] see SHMatrix
+};""",
+    ),
+]
+
+RULES += [
+    (
+        "Misc/BasicFactory.h",
+        "CClassFactory::GetTypeID<TT>() evaluated typeid(TT) with TT often only "
+        "forward-declared at the call site (NDatabase::ImportField<CSound> in "
+        "DataAck.cpp, etc.).  MSVC allowed typeid on an incomplete class; ISO C++ "
+        "does not.  typeid(TT*) is always well-formed and identifies TT just as "
+        "uniquely, so keep a second index keyed by the pointer type, filled at "
+        "RegisterType time, and look that up instead.  RegisterTypeSafe (runtime "
+        "registration from an object) cannot fill it and still uses the "
+        "class-typed index, which GetTypeID falls back to.",
+        """	template < class TT >
+		void RegisterType( int nTypeID, newFunc func, TT* ) { RegisterTypeBase( nTypeID, func, &typeid(TT) ); }""",
+        """	template < class TT >
+		void RegisterType( int nTypeID, newFunc func, TT* )
+		{
+			RegisterTypeBase( nTypeID, func, &typeid(TT) );
+			// [android] also index by the pointer type; see GetTypeID below
+			typeIndexByPointer[ &typeid(TT*) ] = nTypeID;
+		}""",
+    ),
+    (
+        "Misc/BasicFactory.h",
+        "GetTypeID: look up by typeid(TT*) instead of typeid(TT).  Every type "
+        "the engine asks about is registered statically through REGISTER_CLASS, "
+        "which fills the pointer-typed index; a type only registered at runtime "
+        "(RegisterTypeSafe) would need to be complete here, as before.",
+        """	template<class TT>
+		int GetTypeID( TT *p = 0 ) { return VFT2TypeID( &typeid(TT) ); }""",
+        """	template<class TT>
+		int GetTypeID( TT *p = 0 )
+		{
+			// [android] typeid(TT) requires a complete type; typeid(TT*) does not.
+			// The pointer-typed index is filled by RegisterType (see above).
+			return PointerType2TypeID( &typeid(TT*) );
+		}
+private:
+	int PointerType2TypeID( VFT t )
+	{
+		CTypeIndexHash::const_iterator i = typeIndexByPointer.find( t );
+		if ( i != typeIndexByPointer.end() )
+			return i->second;
+		for ( i = typeIndexByPointer.begin(); i != typeIndexByPointer.end(); ++i )
+		{
+			if ( *i->first == *t )
+			{
+				typeIndexByPointer[t] = i->second;
+				return i->second;
+			}
+		}
+		return -1;
+	}
+public:""",
+    ),
+    (
+        "Misc/BasicFactory.h",
+        "Declare the pointer-typed index next to the existing one.",
+        """	CTypeIndexHash typeIndex;
+	CTypeNewHash typeInfo;""",
+        """	CTypeIndexHash typeIndex;
+	CTypeIndexHash typeIndexByPointer;   // [android] keyed by typeid(TT*)
+	CTypeNewHash typeInfo;""",
+    ),
+]
+
+RULES += [
+    (
+        "Misc/Basic2.h",
+        "CPtr<T> == T* was ambiguous under ISO overload resolution: the member "
+        "operator==(const T*) needs a qualification conversion on the argument, "
+        "while the built-in T*==T* needs the user conversion operator T*() on "
+        "the left -- a tie.  MSVC 7 preferred the member.  Making the member a "
+        "template on the argument's pointee type gives it an exact match, which "
+        "wins.  Same result, no more ambiguity, and it also accepts derived-class "
+        "pointers the way the built-in comparison did.",
+        """	inline bool operator==( const TPtrName &a ) const { return Get() == a.CBase::Get(); }            \\
+	inline bool operator==( const T *a ) const { return Get() == a; }                         \\
+	inline bool operator!=( const TPtrName &a ) const { return Get() != a.CBase::Get(); }            \\
+	inline bool operator!=( const T *a ) const { return Get() != a; }                         \\""",
+        """	inline bool operator==( const TPtrName &a ) const { return Get() == a.CBase::Get(); }            \\
+	inline bool operator!=( const TPtrName &a ) const { return Get() != a.CBase::Get(); }            \\
+	/* [android] templated on the pointee so the member is an exact match; see */\\
+	/* the porting rule in tools/prepare_sources.py.  Was: operator==(const T*) */\\
+	template<class TOther>                                                                    \\
+	inline bool operator==( TOther *a ) const { return Get() == a; }                          \\
+	template<class TOther>                                                                    \\
+	inline bool operator!=( TOther *a ) const { return Get() != a; }                          \\""",
+    ),
+]
+
+RULES += [
+    (
+        "ADOImport/BasicDB.h",
+        "CDBPtr derives from the CPtrBase template and, like CPtr, needs the "
+        "dependent base's members named explicitly under ISO two-phase lookup.",
+        """	typedef CPtrBase<T, CDBRecord::SRef> CBase;
+public:
+	CDBPtr() {}""",
+        """	typedef CPtrBase<T, CDBRecord::SRef> CBase;
+	// [android] see the same note on BASIC_PTR_DECLARE in Misc/Basic2.h
+protected:
+	using CBase::SetObject;
+	using CBase::Get;
+public:
+	using CBase::Set;
+	using CBase::GetPtr;
+	CDBPtr() {}""",
+    ),
+]
+
+RULES += [
+    (
+        "ADOImport/BasicDB.h",
+        "REGISTER_DATABASE_CLASS goes through NDatabase::AddTable -> "
+        "RegisterTypeSafe, which registers a table by the *dynamic* type_info of "
+        "a freshly created record.  The port's GetTypeID looks up by typeid(T*) "
+        "(see Misc/BasicFactory.h), so the static type has to reach the factory "
+        "too.  The macro has it: pass a typed null pointer through an overload "
+        "of AddTable that records both keys.",
+        """#define REGISTER_DATABASE_CLASS( N, table, name ) NDatabase::AddTable( N, table, \\
+(NDatabase::RecordCreateFunc)name##::New##name );
+#define REGISTER_DATABASE_CLASS_TEMPL( N, table, name,className ) NDatabase::AddTable( N, table, \\
+(NDatabase::RecordCreateFunc)name##::New##className );""",
+        """// [android] the macros also hand the factory the static record type, so the
+// pointer-typed index GetTypeID<T>() consults is filled for every table.
+#define REGISTER_DATABASE_CLASS( N, table, name ) NDatabase::AddTable( N, table, \\
+(NDatabase::RecordCreateFunc)name##::New##name, (name*)0 );
+#define REGISTER_DATABASE_CLASS_TEMPL( N, table, name,className ) NDatabase::AddTable( N, table, \\
+(NDatabase::RecordCreateFunc)name##::New##className, (name*)0 );""",
+    ),
+    (
+        "ADOImport/BasicDB.h",
+        "Declare the typed AddTable overload used by the macros above.",
+        """	void AddTable( int nTableID, const char *pszTableName, RecordCreateFunc newf );""",
+        """	void AddTable( int nTableID, const char *pszTableName, RecordCreateFunc newf );
+	// [android] typed variant: registers the pointer-typed key as well
+	template<class T>
+	void AddTable( int nTableID, const char *pszTableName, RecordCreateFunc newf, T * )
+	{
+		AddTable( nTableID, pszTableName, newf );
+		GetRecordTypes().RegisterPointerType( nTableID, (T*)0 );
+	}""",
+    ),
+    (
+        "Misc/BasicFactory.h",
+        "Factory: allow registering the pointer-typed key on its own, for types "
+        "whose main registration happens at runtime (RegisterTypeSafe).",
+        """	void RegisterTypeSafe( int nTypeID, newFunc func ) """,
+        """	// [android] pointer-typed key only; pairs with RegisterTypeSafe below
+	template < class TT >
+		void RegisterPointerType( int nTypeID, TT* ) { typeIndexByPointer[ &typeid(TT*) ] = nTypeID; }
+	void RegisterTypeSafe( int nTypeID, newFunc func ) """,
+    ),
+]
+
+# ---------------------------------------------------------------------------
+#  Rule set 6: 32-bit object references in the chunk serialiser
+# ---------------------------------------------------------------------------
+#  CStructureSaver stores a cross-object reference as the object's *address at
+#  save time*, written as 4 bytes, and rebuilds the graph on load by mapping
+#  those 4-byte values back to freshly created objects.  The values are opaque
+#  IDs as far as the file is concerned -- but the code keeps them in void*
+#  variables and hash_map<void*,...>, so on a 64-bit target a 4-byte read leaves
+#  half the pointer unwritten and a 4-byte write drops half the address (and two
+#  live objects can collide in the low 32 bits).  Every reference in game.db
+#  resolved to nothing and the database loaded empty.
+#
+#  The fix keeps the on-disk format byte-for-byte: references are handled as
+#  uint32 IDs throughout, and on write each stored object gets a dense sequence
+#  number instead of its address.
+RULES += [
+    (
+        "FileIO/BasicChunk1.h",
+        "Object-reference maps: key by the 32-bit on-disk ID, not by void*.",
+        """	typedef std::hash_map<void*,CPtr<CObjectBase>,SDefaultPtrHash> CObjectsHash;
+	CObjectsHash objects;
+	typedef std::hash_map<void*,bool,SDefaultPtrHash> CPObjectsHash;
+	CPObjectsHash storedObjects;
+	std::list<CObjectBase*> toStore;""",
+        """	// [android] the file stores 32-bit save-time addresses as reference IDs.
+	// They are keyed as the uint32 they are on disk; on write, objects are
+	// numbered densely (see StoreObject) rather than by truncated address.
+	typedef unsigned int TObjectRef;
+	typedef std::hash_map<TObjectRef,CPtr<CObjectBase> > CObjectsHash;
+	CObjectsHash objects;
+	typedef std::hash_map<const void*,TObjectRef,SDefaultPtrHash> CPObjectsHash;
+	CPObjectsHash storedObjects;
+	std::list<CObjectBase*> toStore;
+	TObjectRef nNextObjectRef;""",
+    ),
+    (
+        "FileIO/BasicChunk1.cpp",
+        "StoreObject: write a dense 32-bit ID for the object, assigned on first "
+        "sight, instead of 4 bytes of its address.",
+        """void CStructureSaver::StoreObject( CObjectBase *pObject )
+{
+	if ( pObject != 0 && storedObjects.find( pObject ) == storedObjects.end() )
+	{
+		toStore.push_back( pObject );
+		storedObjects[pObject] = true; // важно присвоить хоть что-нибудь
+	}
+	RawData( &pObject, 4 );
+}""",
+        """void CStructureSaver::StoreObject( CObjectBase *pObject )
+{
+	// [android] was RawData( &pObject, 4 ) -- the low 32 bits of the address.
+	TObjectRef nRef = 0;
+	if ( pObject != 0 )
+	{
+		CPObjectsHash::iterator it = storedObjects.find( pObject );
+		if ( it == storedObjects.end() )
+		{
+			nRef = nNextObjectRef++;
+			toStore.push_back( pObject );
+			storedObjects[pObject] = nRef;
+		}
+		else
+			nRef = it->second;
+	}
+	RawData( &nRef, 4 );
+}""",
+    ),
+    (
+        "FileIO/BasicChunk1.cpp",
+        "LoadObject: read the 32-bit ID into a uint32, not into half a pointer.",
+        """CObjectBase* CStructureSaver::LoadObject()
+{
+	void *pServerPtr = 0;
+	RawData( &pServerPtr, 4 );
+	if ( pServerPtr != 0 )
+	{
+		CObjectsHash::iterator pFound = objects.find( pServerPtr );""",
+        """CObjectBase* CStructureSaver::LoadObject()
+{
+	TObjectRef nRef = 0;   // [android] was `void *pServerPtr` read 4 bytes at a time
+	RawData( &nRef, 4 );
+	if ( nRef != 0 )
+	{
+		CObjectsHash::iterator pFound = objects.find( nRef );""",
+    ),
+    (
+        "FileIO/BasicChunk1.cpp",
+        "Start(): read the object table's reference IDs as uint32.",
+        """			int nTypeID = 0;
+			void *pServer = 0;
+			bool bValid;
+			obj.Read( &nTypeID, 4 );
+			obj.Read( &pServer, 4 );
+			obj.Read( &bValid,1 );""",
+        """			int nTypeID = 0;
+			TObjectRef pServer = 0;   // [android] 32-bit reference ID, was void*
+			bool bValid;
+			obj.Read( &nTypeID, 4 );
+			obj.Read( &pServer, 4 );
+			obj.Read( &bValid,1 );""",
+    ),
+    (
+        "FileIO/BasicChunk1.cpp",
+        "Start(): per-object data chunks are keyed by the same 32-bit ID.",
+        """			void *pServer = 0;
+			CObjectBase *pObject;
+			StartChunk( (chunk_id) 1, i + 1 );
+			DataChunk( 0, &pServer, 4, 1 );""",
+        """			TObjectRef pServer = 0;   // [android] was void*
+			CObjectBase *pObject;
+			StartChunk( (chunk_id) 1, i + 1 );
+			DataChunk( 0, &pServer, 4, 1 );""",
+    ),
+    (
+        "FileIO/BasicChunk1.cpp",
+        "Start(): reset the write-side reference counter.",
+        """	chunks.clear();
+	obj.Clear();
+	data.Clear();
+	chunks.resize( chunks.size() + 1 );  // [android] was push_back() with no argument
+	bIsReading = bRead;""",
+        """	chunks.clear();
+	obj.Clear();
+	data.Clear();
+	chunks.resize( chunks.size() + 1 );  // [android] was push_back() with no argument
+	bIsReading = bRead;
+	nNextObjectRef = 1;   // [android] 0 is the null reference""",
+    ),
+    (
+        "FileIO/BasicChunk1.cpp",
+        "Finish(): write each object's assigned ID, and its data chunk keyed by "
+        "that ID, instead of 4 bytes of its address.",
+        """			int nTypeID = pSSClasses->GetObjectTypeID( pObject );
+			bool bValid = IsValid( pObject );
+			ASSERT( nTypeID != -1 );
+			obj.Write( &nTypeID, 4 );
+			obj.Write( &pObject, 4 );
+			obj.Write( &bValid, 1 );
+			// save object data
+			StartChunk( (chunk_id) 1, nObject );
+			DataChunk( 0, &pObject, 4, 1 );""",
+        """			int nTypeID = pSSClasses->GetObjectTypeID( pObject );
+			bool bValid = IsValid( pObject );
+			ASSERT( nTypeID != -1 );
+			// [android] the reference ID assigned in StoreObject, not the address
+			TObjectRef nRef = storedObjects[pObject];
+			obj.Write( &nTypeID, 4 );
+			obj.Write( &nRef, 4 );
+			obj.Write( &bValid, 1 );
+			// save object data
+			StartChunk( (chunk_id) 1, nObject );
+			DataChunk( 0, &nRef, 4, 1 );""",
+    ),
+]
+
+RULES += [
+    (
+        "FileIO/BasicChunk1.cpp",
+        "Count object-table entries whose type is not registered, instead of "
+        "silently mapping them to null.  Lets a loader tell 'the file is a "
+        "later format' apart from 'the file is empty'.",
+        """			CObjectBase *pObject = pSSClasses->CreateObject( nTypeID );
+			ASSERT( pObject );""",
+        """			CObjectBase *pObject = pSSClasses->CreateObject( nTypeID );
+			ASSERT( pObject );
+			if ( !pObject )   // [android] see a5_serializer_unknown_types()
+				RecordUnknownType( nTypeID );""",
+    ),
+    (
+        "FileIO/BasicChunk1.cpp",
+        "Implement the unknown-type tally next to the class factory global.",
+        """void StartRegisterSaveload()
+{
+	if ( !pSSClasses )
+		pSSClasses = new CClassFactory<CObjectBase>;
+}""",
+        """void StartRegisterSaveload()
+{
+	if ( !pSSClasses )
+		pSSClasses = new CClassFactory<CObjectBase>;
+}
+// [android] Diagnostics for CStructureSaver::Start(): which type IDs in a file
+// had no registered class.  Reset by a5_serializer_reset_unknown_types().
+static int g_nUnknownTypeCount = 0;
+static int g_nLastUnknownType = 0;
+static void RecordUnknownType( int nTypeID ) { ++g_nUnknownTypeCount; g_nLastUnknownType = nTypeID; }
+extern "C" int a5_serializer_unknown_types( int *pnLastTypeID )
+{
+	if ( pnLastTypeID ) *pnLastTypeID = g_nLastUnknownType;
+	return g_nUnknownTypeCount;
+}
+extern "C" void a5_serializer_reset_unknown_types() { g_nUnknownTypeCount = 0; g_nLastUnknownType = 0; }""",
+    ),
+]
+
 
 def apply_rules(text, rel_path, applied, unmatched):
     """Apply every rule whose file pattern matches.
@@ -718,11 +1298,23 @@ def prepare(src_root, out_root, report_only=False):
         sys.exit("source tree not found: %s" % src_root)
 
     case_index = build_case_index(src_root)
+    forward_declared_enums = collect_forward_declared_enums(src_root, MODULES)
     applied = []
     unmatched = []
+    warnings = []
 
     if not report_only and os.path.isdir(out_root):
-        shutil.rmtree(out_root)
+        # macOS occasionally fails rmtree with "directory not empty" when
+        # Spotlight or the Finder touches the tree mid-delete; retry rather
+        # than leaving the output half-removed.
+        for attempt in range(3):
+            try:
+                shutil.rmtree(out_root)
+                break
+            except OSError:
+                if attempt == 2:
+                    raise
+                time.sleep(0.2)
 
     for module in MODULES:
         module_src = os.path.join(src_root, module)
@@ -754,6 +1346,10 @@ def prepare(src_root, out_root, report_only=False):
             text = text.replace("\r\n", "\n")
 
             text = rewrite_includes(text, module, src_root, case_index, rel_path)
+            text = rewrite_wide_characters(text, rel_path, warnings)
+            text = rewrite_enum_forward_declarations(text, forward_declared_enums)
+            text = rewrite_dependent_iterators(text)
+            text = rewrite_condition_declarations(text)
             text = apply_rules(text, rel_path, applied, unmatched)
 
             if not report_only:
@@ -761,7 +1357,7 @@ def prepare(src_root, out_root, report_only=False):
                     f.write(text)
             stats["files"] += 1
 
-    return applied, unmatched
+    return applied, unmatched, warnings
 
 
 def main():
@@ -772,13 +1368,20 @@ def main():
     parser.add_argument("--report", action="store_true", help="print rewrites without writing")
     args = parser.parse_args()
 
-    applied, unmatched = prepare(args.src, args.out, report_only=args.report)
+    applied, unmatched, warnings = prepare(args.src, args.out, report_only=args.report)
 
     print("prepare_sources: %d files from %s" % (stats["files"], args.src))
     print("  include paths rewritten : %d" % stats["include-path"])
+    print("  wide-char substitutions : %d" % stats["wide-char"])
+    print("  enum forward decls      : %d declarations, %d definitions given ': int'"
+          % (stats["enum-forward"], stats["enum-definition"]))
+    print("  typename on dependent   : %d iterator declarations" % stats["typename"])
+    print("  if-condition declarations: %d rewritten to '= expr'" % stats["condition-decl"])
     print("  targeted source rules   : %d applications" % len(applied))
     for rel_path, description in applied:
         print("    %-28s %s" % (rel_path, description))
+    for warning in warnings:
+        print("  WARNING: %s" % warning)
     if unmatched:
         print("  WARNING: %d rule(s) matched nothing -- the source may have moved:" % len(unmatched))
         for rel_path, description in unmatched:
@@ -790,4 +1393,13 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except BrokenPipeError:
+        # Piping into head/grep closes stdout early.  Without this the exception
+        # surfaces after the output tree has already been rewritten, which looks
+        # like a staging failure when nothing actually went wrong.
+        try:
+            sys.stdout.close()
+        finally:
+            os._exit(0)

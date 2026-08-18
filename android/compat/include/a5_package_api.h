@@ -31,6 +31,13 @@ int   A5PackageGetFileSize( void *pPackage, int nFileID );
 /* Reads up to nMaxSize bytes of an entry; returns bytes read, or -1. */
 int   A5PackageReadFile( void *pPackage, int nFileID, void *pDest, int nMaxSize );
 
+/* Chunk-serialiser diagnostics (FileIO/BasicChunk1.cpp): how many object-table
+ * entries of the last load named a type ID with no registered class, and the
+ * last such ID.  Non-zero means the file was written by a build with classes
+ * this source does not have. */
+int  a5_serializer_unknown_types( int *pnLastTypeID );
+void a5_serializer_reset_unknown_types( void );
+
 #ifdef __cplusplus
 }
 #endif

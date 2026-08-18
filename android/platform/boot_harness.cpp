@@ -24,6 +24,8 @@
 #include "FileIO/BasicChunk1.h"
 #include "FileIO/FilesPackage.h"
 #include "Script/Script.h"
+#include "ADOImport/BasicDB.h"
+#include "DBFormat/DataFormat.h"
 
 #define LOGI( ... ) a5_log( A5_PRIORITY_INFO,  __VA_ARGS__ )
 #define LOGE( ... ) a5_log( A5_PRIORITY_ERROR, __VA_ARGS__ )
@@ -364,6 +366,164 @@ void CheckGameScripts( CReport *pReport, const SDataMountResult &mount )
     }
 }
 
+/*  The whole object database.  Game/Main.cpp does exactly this at start-up:
+ *  open game.db, NDatabase::Serialize( f, READ ).  Every record class in
+ *  DBFormat/ deserialises itself through operator&, and every cross-record
+ *  reference is resolved through CDBPtr -- so this is DBFormat, ADOFake, the
+ *  chunk serialiser and the class factory all working together over 3.3 MB of
+ *  real data. */
+void CheckGameDatabase( CReport *pReport, const SDataMountResult &mount )
+{
+    pReport->Add( BOOT_HEADING, 0, "DBFormat: game.db object database" );
+
+    if ( !mount.bMounted )
+    {
+        pReport->Add( BOOT_WARN, 0, "no game data mounted - database check skipped" );
+        return;
+    }
+    if ( !mount.bHasGameDb )
+    {
+        pReport->Add( BOOT_WARN, 0, "game.db not present in the data root" );
+        return;
+    }
+
+    /*  Format check first.  This source snapshot (January 2003) stores the
+     *  database as hash_map<int, CDBTableBase> with each table's records
+     *  serialised through the record classes' own operator&.  The retail
+     *  game.db files in the repository (Data/, Complete/, Versions/) were
+     *  written by a later build in which every table is a heap object of a
+     *  class registered as 0xA1843130, holding a uniform column layout in
+     *  chunks 2..8 -- a format this source has no schema for.  Detect that up
+     *  front so the outcome is reported for what it is: a data/source version
+     *  mismatch, not a porting fault. */
+    {
+        CFileStream probe;
+        if ( probe.TryOpenRead( "game.db" ) && probe.GetSize() > 16 )
+        {
+            unsigned char header[ 16 ] = { 0 };
+            probe.Seek( 0 );
+            probe.Read( header, sizeof( header ) );
+            /* Chunk 4 (a version tag) leading the file, or a table object of
+             * type 0xA1843130, both mark the later format. */
+            const bool bVersionTag = header[ 0 ] == 4 && header[ 1 ] == 8;
+            if ( bVersionTag )
+            {
+                pReport->Add( BOOT_WARN, 0,
+                              "game.db is the retail (post-Jan-2003) format; this source "
+                              "snapshot has no schema for it - see docs/PORTING.md" );
+                return;
+            }
+        }
+    }
+
+    NHPTimer::STime t;
+    NHPTimer::GetTime( &t );
+    a5_serializer_reset_unknown_types();
+    try
+    {
+        CFileStream file;
+        file.OpenRead( "game.db" );          /* root-relative, like the original */
+        const int nBytes = file.GetSize();
+        NDatabase::Serialize( file, CStructureSaver::READ );
+        const double fElapsed = NHPTimer::GetTimePassed( &t );
+        pReport->Add( BOOT_OK, fElapsed, "game.db: %d bytes parsed", nBytes );
+    }
+    catch ( const SFileIOError &error )
+    {
+        pReport->Add( BOOT_FAIL, NHPTimer::GetTimePassed( &t ), "game.db: %s",
+                      error.szError.c_str() );
+        return;
+    }
+    catch ( ... )
+    {
+        pReport->Add( BOOT_FAIL, NHPTimer::GetTimePassed( &t ),
+                      "game.db: unknown exception during load" );
+        return;
+    }
+
+    /*  Count what was loaded, table by table.  The table registry maps a
+     *  numeric ID to a table; there is no name index in the fake DB layer, so
+     *  a handful of well-known IDs are named here for the report. */
+    struct STableName { int nID; const char *pszName; };
+    const STableName KNOWN[] = {
+        { 45, "Strings" }, { 46, "Textures" }, { 40, "Sounds" }, { 30, "Units" },
+    };
+    int nTablesSeen = 0, nRecordsSeen = 0;
+    for ( int nTableID = 0; nTableID < 200; ++nTableID )
+    {
+        CDBTableBase *pTable = NDatabase::GetTable( nTableID );
+        if ( !pTable )
+            continue;
+        ++nTablesSeen;
+        int nRecords = 0;
+        /* CDBIteratorBase's constructor is protected; the typed iterator over
+         * the CDBRecord base counts records regardless of the concrete type. */
+        for ( CDBIterator<CDBRecord> it( *static_cast<CDBTable<CDBRecord>*>( pTable ) );
+              it.MoveNext(); )
+            ++nRecords;
+        nRecordsSeen += nRecords;
+        for ( size_t i = 0; i < sizeof( KNOWN ) / sizeof( KNOWN[ 0 ] ); ++i )
+            if ( KNOWN[ i ].nID == nTableID )
+                pReport->Add( BOOT_DETAIL, 0, "  table %d (%s): %d records",
+                              nTableID, KNOWN[ i ].pszName, nRecords );
+    }
+    int nLastUnknownType = 0;
+    const int nUnknown = a5_serializer_unknown_types( &nLastUnknownType );
+    if ( nUnknown > 0 )
+    {
+        pReport->Add( BOOT_WARN, 0,
+                      "%d objects in the file are of unregistered type 0x%08X - the "
+                      "database was written by a later build than this source (see "
+                      "docs/PORTING.md); %d tables registered, records not loadable",
+                      nUnknown, (unsigned)nLastUnknownType, nTablesSeen );
+        return;
+    }
+    if ( nTablesSeen > 0 && nRecordsSeen > 0 )
+        pReport->Add( BOOT_OK, 0, "%d tables, %d records in memory",
+                      nTablesSeen, nRecordsSeen );
+    else
+        pReport->Add( BOOT_FAIL, 0, "database parsed but holds no records" );
+
+    /*  The Strings table is the localised game text, stored as UTF-16.  If the
+     *  wide-string port is right these read back as text; if the character
+     *  width were wrong they would be interleaved garbage.  Convert to UTF-8 for
+     *  the log and check the result contains letters, not just punctuation. */
+    CDBTable<NDb::CString> *pStrings = NDatabase::GetTable<NDb::CString>();
+    if ( pStrings )
+    {
+        int nShown = 0, nNonAscii = 0, nTotal = 0;
+        for ( CDBIterator<NDb::CString> it( *pStrings ); it.MoveNext(); )
+        {
+            const NDb::CString *pString = it.Get();
+            if ( !pString )
+                continue;
+            ++nTotal;
+            for ( size_t k = 0; k < pString->szStr.size(); ++k )
+                if ( pString->szStr[ k ] >= 0x80 )
+                    ++nNonAscii;
+            if ( nShown < 3 && pString->szStr.size() >= 8 && pString->szStr.size() < 60 )
+            {
+                char szUtf8[ 256 ];
+                const int n = WideCharToMultiByte( CP_UTF8, 0, pString->szStr.c_str(),
+                                                   (int)pString->szStr.size(), szUtf8,
+                                                   sizeof( szUtf8 ) - 1, 0, 0 );
+                szUtf8[ n < 0 ? 0 : n ] = 0;
+                pReport->Add( BOOT_DETAIL, 0, "  string %d: \"%s\"",
+                              pString->GetRecordID(), szUtf8 );
+                ++nShown;
+            }
+        }
+        if ( nTotal > 0 )
+            pReport->Add( BOOT_OK, 0,
+                          "Strings table: %d entries, UTF-16 decoded (%d non-ASCII chars)",
+                          nTotal, nNonAscii );
+        else
+            pReport->Add( BOOT_DETAIL, 0, "  Strings table present, no records" );
+    }
+    else
+        pReport->Add( BOOT_FAIL, 0, "GetTable<CString>() returned null - type registry broken" );
+}
+
 void CheckScripting( CReport *pReport )
 {
     pReport->Add( BOOT_HEADING, 0, "Script: Lua 4.0 virtual machine" );
@@ -457,6 +617,7 @@ SBootReport RunBootHarness( const char *pszExternalFilesDir,
     CheckSerialiser( &report );
     CheckPackages( &report, mount );
     CheckLooseAssets( &report, mount );
+    CheckGameDatabase( &report, mount );
     CheckScripting( &report );
     CheckGameScripts( &report, mount );
 

@@ -90,7 +90,8 @@ That list *is* the port's diff against 2003. Everything else is new code in
 | `FileIO` | streams, chunk serialiser, `.res` packages | ported, verified |
 | `Script` | Lua 4.0 + the engine's C++ wrapper | ported, verified |
 | `MiscDll` | console variables/commands, log streams | ported (builds) |
-| `Image`, `DBFormat` | textures, the `game.db` schema | staged, not yet built |
+| `DBFormat` | the `game.db` schema (130 record classes) | ported, runs; shipped `game.db` files are a newer format than this source — see PORTING.md |
+| `Image` | textures | staged, not yet built |
 | `Main` | renderer, scene, AI, UI, game logic | not started |
 | `Input`, `FModSound` | DirectInput, FMOD | to be replaced, not wrapped |
 
@@ -106,6 +107,11 @@ crash immediately rather than degrade:
 * `CBufferedStream::SetNewBufferSize` truncated a pointer difference to `int`.
 * `CRandomGenerator::FillRandRsl` seeded ISAAC by walking `C:\` for a random file
   and looping until it found one — an infinite loop anywhere else.
+
+* `CStructureSaver` used 4 bytes of an object's *address* as its on-disk
+  reference ID. On 64-bit that truncates on write and half-fills a pointer on
+  read; the port keys references as `uint32` and numbers objects densely on
+  write. Format unchanged.
 
 And one that is not a bug but a trap: `Float2Int` was x87 `fld`/`fistp`, which
 **rounds**. A naive `(int)` replacement truncates and silently shifts geometry;

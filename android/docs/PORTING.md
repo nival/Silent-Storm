@@ -12,8 +12,8 @@ not as a summary of what happened.
         FileIO        ████████████████████  ported, reading real .res packages
         Script        ████████████████████  Lua 4.0 running the game's own .l sources
         MiscDll       ████████████████░░░░  builds; console vars untested
+        DBFormat      ████████████████░░░░  builds and runs; blocked on the *data* (see below)
         Image         ████████░░░░░░░░░░░░  staged, needs a DXT encoder replacement
-        DBFormat      ████░░░░░░░░░░░░░░░░  staged, blocked on wchar_t (see below)
         Main          ░░░░░░░░░░░░░░░░░░░░  154k lines: renderer, scene, AI, UI, game
         Input         ░░░░░░░░░░░░░░░░░░░░  DirectInput -> touch; replace, do not wrap
         FModSound     ░░░░░░░░░░░░░░░░░░░░  FMOD 3 -> Oboe/OpenSL; replace
@@ -21,27 +21,42 @@ not as a summary of what happened.
 
 ## The order the remaining work should happen in
 
-### 1. `wstring` — do this before `DBFormat` (blocking)
+### 1. `wstring` — done
 
-The engine serialises `std::wstring` directly into `game.db` and into asset
-files (`DBFormat/DataText.h`, `DBFormat/DataFormat.h`, `MiscDll/Commands.h`).
-On Windows `wchar_t` is 2 bytes, so those files contain UTF-16. On Android
-`wchar_t` is 4 bytes, so the same code reads and writes UTF-32 and every string
-in the database comes out as garbage.
+The engine serialises `std::wstring` straight into `game.db` and asset files,
+and it is UTF-16 because `wchar_t` is 2 bytes on Win32. Android's is 4. The
+staged sources now use `char16_t`/`std::u16string` (a mechanical pass in
+`prepare_sources.py`), `WCHAR` is `char16_t` in the compat `windows.h`, and
+`compat/src/wide_char.cpp` provides the char16_t CRT forms plus real
+windows-1251/1252 conversion tables for `MultiByteToWideChar` and friends.
 
-`-fshort-wchar` is not a fix: libc++ and bionic are compiled with 4-byte
-`wchar_t`, and `std::wstring`'s `char_traits` calls into `wmemcpy`/`wmemcmp`.
+### 1b. `game.db` — the data is newer than the source
 
-The fix is to map the engine's wide string onto `std::u16string`:
+`DBFormat` and the `ADOFake` database stub compile, link and run: all 130 record
+classes register, `NDatabase::Serialize` parses `game.db` and creates the table
+registry. But **no `game.db` in this repository matches this source snapshot**.
 
-* `wstring` → `std::u16string`, `WCHAR`/`wchar_t` → `char16_t` in engine code
-* `Misc/StrProc.cpp`'s ten or so wide-character helpers (`WideCharToMultiByte`,
-  `MultiByteToWideChar`, `vswprintf`, `wcscat`, `_itow`) need `char16_t` versions
-* the narrow↔wide conversion has to keep assuming CP1251, which is what
-  `Misc/StrProc.cpp:15` (`nCodePage = CP_ACP`) means on a Russian Windows build
+* This source (January 2003) stores the database as `hash_map<int, CDBTableBase>`
+  by value, each table's records going through the record classes' `operator&`.
+* Every shipped `game.db` (`Data/`, `Complete/`, `Versions/Current/`) stores each
+  table as a heap object of a class registered as `0xA1843130` — a class this
+  source does not have — with a uniform body of chunks 2..8 that looks like a
+  column-oriented layout common to all tables. `Complete/game.db` additionally
+  carries a leading chunk-4 version tag.
 
-Once that lands, `DBFormat` should build and `game.db` should load, which is the
-next real milestone: the port would have the whole object database in memory.
+The chunk serialiser reports the situation exactly (`a5_serializer_unknown_types`),
+and the harness shows it as a warning rather than a failure. Two ways forward:
+
+1. **Find a matching database.** The `Data/*.mdb` Access files are the authoring
+   source; `Tools/` contains the importer that produced `game.db` from them
+   (`DataImport.exe`). If a copy of the January 2003 build's `game.db` — or the
+   ability to run the importer of that era — turns up, the port loads it as-is.
+2. **Reverse the retail table format.** Chunks 2..8 per table across 56 tables
+   is a bounded job, but it is a job of *recovering a schema*, and its correctness
+   would rest on inference rather than on the source. Not attempted here.
+
+Either way, this is a data-versioning problem, not a porting one: the engine
+code that reads the format it was written for is running on device.
 
 ### 2. `Image`
 
@@ -109,6 +124,20 @@ rounding mode (nearest-even); `(int)` truncates. Use `lrintf`.
 container to disk will produce a different entry order than the 2003 tools did.
 That is fine for `.res` packages (they carry a lookup table) — check before
 relying on it for save games.
+
+**Object references in the chunk serialiser are 32-bit save-time addresses.**
+`CStructureSaver` writes 4 bytes of an object's *pointer* as its reference ID and
+maps them back on load. On 64-bit that dropped half the address on write and
+left half a `void*` unwritten on read, so every reference resolved to nothing.
+The port keys references as `uint32` throughout and, on write, numbers stored
+objects densely instead of using addresses. On-disk format is unchanged.
+
+**MSVC 7 leniencies that recur across the tree** — all handled by mechanical
+passes in `prepare_sources.py`, so they will not need attention again in `Main`:
+forward-declared enums (`enum E;` → `enum E : int;` plus the definition),
+`typename` on dependent iterator types, `if ( CDynamicCast<T> p( x ) )`
+declarations, `typeid` on incomplete types in the class factory, and the
+`CPtr<T> == T*` overload ambiguity.
 
 **`lua_dobuffer` does not run the chunk.** It parses and *starts* it on a Lua
 thread; `lua_executeThreads()` is commented out in `ldo.cpp` because the engine

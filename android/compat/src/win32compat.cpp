@@ -14,6 +14,7 @@
 #include "windows.h"
 #include "a5_log.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
@@ -169,6 +170,16 @@ std::string NormaliseSeparators( const char *pszPath )
     /* Strip a leading "./" so cache keys stay canonical. */
     while ( s.size() > 2 && s[ 0 ] == '.' && s[ 1 ] == '/' )
         s.erase( 0, 2 );
+    /* Absolute Win32 paths.  The shipped cfg files still say
+     * "exec c:\a5\cfg\input.cfg" -- the studio's install root.  A drive
+     * letter has no meaning here: drop it, and drop the "a5/" install
+     * directory too, so those paths land in the mounted data root. */
+    if ( s.size() >= 3 && isalpha( (unsigned char)s[ 0 ] ) && s[ 1 ] == ':' && s[ 2 ] == '/' )
+    {
+        s.erase( 0, 3 );
+        if ( s.size() >= 3 && tolower( (unsigned char)s[ 0 ] ) == 'a' && s[ 1 ] == '5' && s[ 2 ] == '/' )
+            s.erase( 0, 3 );
+    }
     return s;
 }
 

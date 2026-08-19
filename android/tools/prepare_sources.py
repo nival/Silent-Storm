@@ -1088,13 +1088,28 @@ private:
 			return i->second;
 		for ( i = typeIndexByPointer.begin(); i != typeIndexByPointer.end(); ++i )
 		{
-			if ( *i->first == *t )
+			if ( SamePointerType( i->first, t ) )
 			{
 				typeIndexByPointer[t] = i->second;
 				return i->second;
 			}
 		}
 		return -1;
+	}
+	// The Itanium ABI gives type_info for a pointer to an *incomplete* class
+	// internal linkage and a name starting with '*' ("compare by address"),
+	// so typeid(NDb::CPlacableObject*) taken where the class is only
+	// forward-declared (DataMap.cpp) never equals the one registered where it
+	// is complete (DataFormat.cpp) -- and every such cross-reference in the
+	// database import came out null.  Compare the mangled names instead.
+	static bool SamePointerType( VFT a, VFT b )
+	{
+		if ( *a == *b )
+			return true;
+		const char *pa = a->name(), *pb = b->name();
+		if ( *pa == '*' ) ++pa;
+		if ( *pb == '*' ) ++pb;
+		return strcmp( pa, pb ) == 0;
 	}
 public:""",
     ),
@@ -2583,6 +2598,42 @@ RULES += [
 RULES += [
     (
         "Main/Cursor.cpp",
+        "A touch's DOWN/UP arrive in the same frame as the position; the "
+        "interface reads the cursor position when it turns the button message "
+        "into a UI event (CInterface::ProcessEvent), before the per-frame "
+        "Update() would apply it.  Take the absolute position at the top of "
+        "Update(), before its 'no time passed' early return, so an Update() "
+        "call from ProcessEvent moves the cursor first.",
+        """	STime sDelta = pTimer->GetValue() - sLastUpdateTime;
+	sLastUpdateTime = pTimer->GetValue();
+	if ( sDelta == 0 )
+		return;""",
+        """	STime sDelta = pTimer->GetValue() - sLastUpdateTime;
+	sLastUpdateTime = pTimer->GetValue();
+	{	// [android] absolute pointer, applied even when no time has passed
+		LONG nAbsX = 0, nAbsY = 0;
+		if ( a5_get_pointer_absolute( &nAbsX, &nAbsY ) )
+		{
+			vCursorPos.x = (float)nAbsX;
+			vCursorPos.y = (float)nAbsY;
+		}
+	}
+	if ( sDelta == 0 )
+		return;""",
+    ),
+    (
+        "Main/UIInterface.cpp",
+        "Same touch problem from the interface side: bring the cursor up to "
+        "date before turning a mouse-button message into a positioned UI event.",
+        """	SPoint sPoint( pCursor->GetPos().x * 1024 / pView->GetViewportSize().x, pCursor->GetPos().y * 768 / pView->GetViewportSize().y  );
+	if ( cmdLButtonUp.ProcessEvent( eEvent ) )""",
+        """	if ( eEvent.mMessage.cType != NInput::CT_TIME )
+		pCursor->Update();   // [android] touch: position and button arrive together
+	SPoint sPoint( pCursor->GetPos().x * 1024 / pView->GetViewportSize().x, pCursor->GetPos().y * 768 / pView->GetViewportSize().y  );
+	if ( cmdLButtonUp.ProcessEvent( eEvent ) )""",
+    ),
+    (
+        "Main/Cursor.cpp",
         "The cursor integrates relative mouse deltas.  Touch is absolute: when "
         "the platform has published a pointer position (a5_get_pointer_position, "
         "set on every touch event in back-buffer coordinates) the cursor takes "
@@ -2594,16 +2645,26 @@ RULES += [
 	// [android] absolute pointer (touch) takes precedence over integrated deltas
 	{
 		LONG nAbsX = 0, nAbsY = 0;
+		const float fDX = bindX.GetDelta(), fDY = bindY.GetDelta();
 		if ( a5_get_pointer_absolute( &nAbsX, &nAbsY ) )
 		{
 			vCursorPos.x = (float)nAbsX;
 			vCursorPos.y = (float)nAbsY;
-			bindX.GetDelta(); bindY.GetDelta();   // consume, keep the binds' state sane
 		}
 		else
 		{
-			vCursorPos.x += AccelerateAxis( bindX.GetDelta() * 250.0f, sDelta );
-			vCursorPos.y += AccelerateAxis( bindY.GetDelta() * 250.0f, sDelta );
+			vCursorPos.x += AccelerateAxis( fDX * 250.0f, sDelta );
+			vCursorPos.y += AccelerateAxis( fDY * 250.0f, sDelta );
+		}
+		if ( getenv( "A5_DEBUG_CURSOR" ) )
+		{
+			static int nCount = 0;
+			if ( ( ++nCount % 30 ) == 0 || fDX != 0 || fDY != 0 )
+			{
+				char szBuf[ 160 ];
+				sprintf( szBuf, "[android] cursor %p: pos %.1f %.1f abs %d (%ld %ld) deltas %.3f %.3f\\n", (void*)this, vCursorPos.x, vCursorPos.y, a5_get_pointer_absolute( 0, 0 ), (long)nAbsX, (long)nAbsY, fDX, fDY );
+				OutputDebugString( szBuf );
+			}
 		}
 	}""",
     ),
@@ -2728,6 +2789,345 @@ RULES += [
 		char szUtf8[ 2048 ];
 		DebugTrace( "console: %s\\n", a5_u16_to_utf8( sLine.szText.c_str(), szUtf8, sizeof( szUtf8 ) ) );
 	}""",
+    ),
+]
+
+# ---------------------------------------------------------------------------
+#  Rule set 16: the retail data's UI templates differ from what this source's
+#  interfaces expect.  Adapt the code to the data where the difference is
+#  small and mechanical.
+# ---------------------------------------------------------------------------
+RULES += [
+    (
+        "Main/UIInterface.h",
+        "Let template consumers ask whether a control exists instead of "
+        "getting a zero-sized stand-in plus a console error.",
+        """	const SWindowInfo& GetControl( const string &szID );
+};""",
+        """	const SWindowInfo& GetControl( const string &szID );
+	bool HasControl( const string &szID ) const;   // [android]
+};""",
+    ),
+    (
+        "Main/UIInterface.cpp",
+        "HasControl implementation.",
+        """const SWindowInfo& CLoader::GetControl( const string &szID )
+{""",
+        """bool CLoader::HasControl( const string &szID ) const   // [android]
+{
+	for ( int nTemp = 0; nTemp < windowsSet.size(); nTemp++ )
+		if ( windowsSet[nTemp].second.sInfo.szID == szID )
+			return true;
+	return false;
+}
+////////////////////////////////////////////////////////////////////////////////////////////////////
+const SWindowInfo& CLoader::GetControl( const string &szID )
+{""",
+    ),
+    (
+        "Main/iMainMenu.cpp",
+        "The retail main-menu template (UI container 347) has no "
+        "credits/options/campaign/load/quit buttons and no font-prefix strings "
+        "10900/10901; it has a text line 'line_1' where the retail build laid "
+        "its menu out.  When the named buttons are absent, build them along "
+        "line_1 with the retail strings 10902..10906.  Their IDs are the bind "
+        "names, so clicking them works exactly like the original buttons.",
+        """			pLogo = new CFlashImage( sEvent.pLoader->GetControl( "logo" ) );
+
+			pCredits = new CHoverButton( sEvent.pLoader->GetControl( "credits" ) );""",
+        """			pLogo = new CFlashImage( sEvent.pLoader->GetControl( "logo" ) );
+
+			// [android] retail template: lay the five buttons out along line_1
+			if ( !sEvent.pLoader->HasControl( "credits" ) )
+			{
+				const char *pszIDs[5] = { "campaign", "load", "options", "credits", "quit" };
+				const int nStrings[5] = { 10902, 10903, 10904, 10905, 10906 };
+				CObj<CHoverButton> *ppButtons[5] = { &pCampaign, &pLoadGame, &pOptions, &pCredits, &pQuitGame };
+				for ( int i = 0; i < 5; ++i )
+				{
+					CHoverButton *pButton = new CHoverButton( sEvent.pLoader->MakeLineControl( pszIDs[i], 1, i, 5 ) );
+					pButton->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 11130 ) + u"<center>" + GetDBString( nStrings[i] ) );
+					pButton->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 11129 ) + u"<center>" + GetDBString( nStrings[i] ) );
+					*ppButtons[i] = pButton;
+				}
+				break;
+			}
+
+			pCredits = new CHoverButton( sEvent.pLoader->GetControl( "credits" ) );""",
+    ),
+    (
+        "Main/UIWindow.h",
+        "The retail templates name the 3D view 'view'; this source's menus ask "
+        "for 'clientview'.  Fall back before inventing an empty window (which "
+        "leaves the camera with a zero rect and no scene drawn).",
+        """	CWindow* pChild = pContainer->GetChildByID( szID );
+	if ( IsValid( pChild ) )""",
+        """	CWindow* pChild = pContainer->GetChildByID( szID );
+	if ( !IsValid( pChild ) && szID == "clientview" )   // [android] retail templates say "view"
+		pChild = pContainer->GetChildByID( "view" );
+	if ( IsValid( pChild ) )""",
+    ),
+    (
+        "Main/UIInterface.h",
+        "Helper for menus whose retail template lacks the named buttons this "
+        "source expects: place a button along one of the template's text lines "
+        "(line_1 / line_2), split nCount ways.",
+        """	bool HasControl( const string &szID ) const;   // [android]
+};""",
+        """	bool HasControl( const string &szID ) const;   // [android]
+	// [android] a stand-in for a missing control: slot nIndex of nCount along
+	// the template's "line_<nLine>" text line, with szID as the window id
+	SWindowInfo MakeLineControl( const string &szID, int nLine, int nIndex, int nCount );
+};""",
+    ),
+    (
+        "Main/UIInterface.cpp",
+        "MakeLineControl implementation.",
+        """bool CLoader::HasControl( const string &szID ) const   // [android]
+{""",
+        """SWindowInfo CLoader::MakeLineControl( const string &szID, int nLine, int nIndex, int nCount )   // [android]
+{
+	char szLine[ 16 ];
+	sprintf( szLine, "line_%d", nLine );
+	SWindowInfo sLine = HasControl( szLine ) ? GetControl( szLine ) : SWindowInfo( pParent, SPoint( 0, 700 + 40 * ( nLine - 1 ) ), SPoint( 1024, 32 ), szLine, STYLE_VISIBLE | STYLE_ENABLED );
+	const int nWidth = sLine.sSize.x / Max( 1, nCount );
+	return SWindowInfo( sLine.pParent, SPoint( sLine.sPosition.x + nIndex * nWidth, sLine.sPosition.y ), SPoint( nWidth, sLine.sSize.y ), szID, STYLE_VISIBLE | STYLE_ENABLED );
+}
+////////////////////////////////////////////////////////////////////////////////////////////////////
+bool CLoader::HasControl( const string &szID ) const   // [android]
+{""",
+    ),
+    (
+        "Main/iSideMenu.cpp",
+        "Retail side-selection template (UI container 353) has axis/allies but "
+        "no next/cancel buttons and no 10900-style font strings; put NEXT and "
+        "BACK on the template's text lines.  (The source labels the 'next' "
+        "button ALLIES -- 11132 -- a copy-paste slip; retail string 16820 is "
+        "NEXT.)",
+        """				pBack = new CHoverButton( sEvent.pLoader->GetControl( "cancel" ) );
+				pBack->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 11130 ) + GetDBString( 11174 ) );
+				pBack->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 11129 ) + GetDBString( 11174 ) );""",
+        """				// [android] retail template: NEXT on line_1, BACK on line_2
+				if ( !sEvent.pLoader->HasControl( "cancel" ) )
+				{
+					pBack = new CHoverButton( sEvent.pLoader->MakeLineControl( "cancel", 2, 0, 1 ) );
+					pBack->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 11130 ) + u"<center>" + GetDBString( 11174 ) );
+					pBack->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 11129 ) + u"<center>" + GetDBString( 11174 ) );
+					pNext = new CScriptHoverButton( sEvent.pLoader->MakeLineControl( "next", 1, 0, 1 ), pInterface );
+					pNext->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 11130 ) + u"<center>" + GetDBString( 16820 ) );
+					pNext->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 11129 ) + u"<center>" + GetDBString( 16820 ) );
+					pAxis = new CScriptHoverButton( sEvent.pLoader->GetControl( "axis" ), pInterface );
+					pAxis->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 11130 ) + GetDBString( 11131 ) );
+					pAxis->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 11129 ) + GetDBString( 11131 ) );
+					pAllies = new CScriptHoverButton( sEvent.pLoader->GetControl( "allies" ), pInterface );
+					pAllies->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 11130 ) + GetDBString( 11132 ) );
+					pAllies->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 11129 ) + GetDBString( 11132 ) );
+					break;
+				}
+				pBack = new CHoverButton( sEvent.pLoader->GetControl( "cancel" ) );
+				pBack->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 11130 ) + GetDBString( 11174 ) );
+				pBack->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 11129 ) + GetDBString( 11174 ) );""",
+    ),
+    (
+        "Main/GTexture.cpp",
+        "Diagnostics: a texture that falls back to the checkerboard says which "
+        "one and why (missing file vs. unsupported format).",
+        """		pValue = MakeTexture( hdr, eUsage, eWrap );
+		if ( !RealLoadTexture( pValue.GetPtr(), file.GetStream(), hdr, 0, 0, hdr.nSizeX, hdr.nSizeY, hdr.nNumMipLevels ) )
+		{
+			ASSERT(0);
+			CreateChecker();
+		}
+	}
+	else
+	{
+		ASSERT(0);
+		CreateChecker();
+	}""",
+        """		pValue = MakeTexture( hdr, eUsage, eWrap );
+		if ( !RealLoadTexture( pValue.GetPtr(), file.GetStream(), hdr, 0, 0, hdr.nSizeX, hdr.nSizeY, hdr.nNumMipLevels ) )
+		{
+			ASSERT(0);
+			DebugTrace( "[android] texture %d (file %d): unsupported format %d (%dx%d) - checkerboard\\n", pTex->GetRecordID(), GetRealTextureID( pTex ), (int)hdr.format, hdr.nSizeX, hdr.nSizeY );
+			CreateChecker();
+		}
+	}
+	else
+	{
+		ASSERT(0);
+		DebugTrace( "[android] texture %d (file %d): file missing or empty - checkerboard\\n", pTex->GetRecordID(), GetRealTextureID( pTex ) );
+		CreateChecker();
+	}""",
+    ),
+    (
+        "Main/SWTexture.cpp",
+        "The software texture path (terrain painting) only reads A8R8G8B8 "
+        "MMPs; the retail terrain textures are DXT-compressed, so every retail "
+        "terrain tile came up as the checkerboard.  Decode DXT1/3/5 through the "
+        "port's decoder (platform/dxt_decode.cpp).",
+        """static void CreateChecker( CSWTextureData *pTexture )
+{""",
+        """// [android] DXT-compressed MMPs, decoded in software
+static void LoadTextureDataDXT( CSWTextureData *pTexture, const SMMPFileHeader &hdr, CDataStream *pFile )
+{
+	const int nDxt = ( hdr.format == NGfx::CF_DXT1 ) ? 1 : ( hdr.format <= NGfx::CF_DXT3 ? 3 : 5 );
+	int nXSize = hdr.nSizeX, nYSize = hdr.nSizeY;
+	const int nMips = Max( (int)hdr.nNumMipLevels, 1 );
+	pTexture->mips.resize( nMips );
+	std::vector<uint8_t> in, out;
+	for ( int nMip = 0; nMip < nMips; ++nMip )
+	{
+		const size_t nBytes = DxtLevelSize( nDxt, nXSize, nYSize );
+		in.resize( nBytes );
+		pFile->Read( &in[0], (int)nBytes );
+		out.assign( (size_t)nXSize * nYSize * 4, 0 );
+		DxtDecode( nDxt, &in[0], nBytes, nXSize, nYSize, &out[0] );
+		CArray2D<NGfx::SPixel8888> &mip = pTexture->mips[nMip];
+		mip.SetSizes( nXSize, nYSize );
+		for ( int y = 0; y < nYSize; ++y )
+			for ( int x = 0; x < nXSize; ++x )
+			{
+				const uint8_t *p = &out[ ( (size_t)y * nXSize + x ) * 4 ];
+				mip[y][x] = NGfx::SPixel8888( p[0], p[1], p[2], p[3] );
+			}
+		nXSize = Max( 1, nXSize >> 1 );
+		nYSize = Max( 1, nYSize >> 1 );
+	}
+}
+////////////////////////////////////////////////////////////////////////////////////////////////////
+static void CreateChecker( CSWTextureData *pTexture )
+{""",
+    ),
+    (
+        "Main/SWTexture.cpp",
+        "Dispatch the DXT formats to the decoder above.",
+        """		case NGfx::CF_A8R8G8B8: LoadTextureData<NGfx::SPixel8888>( pValue, hdr.nNumMipLevels, hdr.nSizeX, hdr.nSizeY, file.GetStream() ); break;
+		default: ASSERT( 0 ); CreateChecker( pValue ); break;""",
+        """		case NGfx::CF_A8R8G8B8: LoadTextureData<NGfx::SPixel8888>( pValue, hdr.nNumMipLevels, hdr.nSizeX, hdr.nSizeY, file.GetStream() ); break;
+		case NGfx::CF_DXT1: case NGfx::CF_DXT2: case NGfx::CF_DXT3: case NGfx::CF_DXT4: case NGfx::CF_DXT5:   // [android]
+			if ( getenv( "A5_DEBUG_TEXTURES" ) )
+				DebugTrace( "[android] software texture %d: DXT%d %dx%d, %d mips, avg 0x%08X\\n", GetKey(), (int)hdr.format, hdr.nSizeX, hdr.nSizeY, hdr.nNumMipLevels, (unsigned)hdr.dwAverageColor );
+			LoadTextureDataDXT( pValue, hdr, file.GetStream() ); break;
+		default: ASSERT( 0 ); DebugTrace( "[android] software texture: unsupported MMP format %d - checkerboard\\n", (int)hdr.format ); CreateChecker( pValue ); break;""",
+    ),
+    (
+        "Main/SWTexture.cpp",
+        "Include the decoder.",
+        '#include "SWTexture.h"\n#include "../Misc/StrProc.h"',
+        '#include "SWTexture.h"\n#include "../Misc/StrProc.h"\n#include "dxt_decode.h"   // [android]',
+    ),
+    (
+        "Main/GParticleFormat.h",
+        "Particle effects are loaded as a memory image whose SParticle records "
+        "carry 32-bit file offsets in the TKeyTrack::keys pointer fields, fixed "
+        "up in place.  On a 64-bit target the pointer is 8 bytes and the "
+        "in-memory SParticle no longer matches the file record; the records are "
+        "now decoded into a separate array.",
+        """	int nParticles;
+	SParticle *particles;
+
+	CParticlesInfo() { nBytes = 0; nParticles = 0; }""",
+        """	int nParticles;
+	SParticle *particles;
+	std::vector<SParticle> particleStore;   // [android] decoded from the 32-bit file records
+
+	CParticlesInfo() { nBytes = 0; nParticles = 0; particles = 0; }""",
+    ),
+    (
+        "Main/GParticleFormat.cpp",
+        "Decode the file's SParticle records (2+2 bytes of times, then five "
+        "{short nKeys; uint32 offset} tracks, packed to 2) into the native "
+        "SParticle array instead of reinterpreting the bytes.",
+        """	pValue->particles = (SParticle*)p;
+
+	for ( int nP = 0; nP < pValue->nParticles; ++nP )
+	{
+		SParticle &particle = pValue->particles[nP];
+		particle.pos.keys = (TKey<CVec3>*)(pData + (int)particle.pos.keys);
+		particle.rot.keys = (TKey<float>*)(pData + (int)particle.rot.keys);
+		particle.scale.keys = (TKey<CVec2>*)(pData + (int)particle.scale.keys);
+		particle.color.keys = (TKey<DWORD>*)(pData + (int)particle.color.keys);
+		particle.sprite.keys = (TKey<short>*)(pData + (int)particle.sprite.keys);
+	}
+}""",
+        """	// [android] the file record: 32-bit offsets where SParticle has pointers
+#pragma pack( push, 2 )
+	struct SFileTrack { short nKeys; unsigned int nOffset; };
+	struct SFileParticle { short nTStart; short nTEnd; SFileTrack pos, rot, scale, color, sprite; };
+#pragma pack( pop )
+	const SFileParticle *pFile = (const SFileParticle*)p;
+	pValue->particleStore.resize( pValue->nParticles );
+	pValue->particles = pValue->nParticles ? &pValue->particleStore[0] : 0;
+
+	for ( int nP = 0; nP < pValue->nParticles; ++nP )
+	{
+		SParticle &particle = pValue->particles[nP];
+		const SFileParticle &f = pFile[nP];
+		particle.nTStart = f.nTStart;
+		particle.nTEnd = f.nTEnd;
+		particle.pos.nKeys = f.pos.nKeys;       particle.pos.keys = (TKey<CVec3>*)(pData + f.pos.nOffset);
+		particle.rot.nKeys = f.rot.nKeys;       particle.rot.keys = (TKey<float>*)(pData + f.rot.nOffset);
+		particle.scale.nKeys = f.scale.nKeys;   particle.scale.keys = (TKey<CVec2>*)(pData + f.scale.nOffset);
+		particle.color.nKeys = f.color.nKeys;   particle.color.keys = (TKey<DWORD>*)(pData + f.color.nOffset);
+		particle.sprite.nKeys = f.sprite.nKeys; particle.sprite.keys = (TKey<short>*)(pData + f.sprite.nOffset);
+	}
+}""",
+    ),
+    (
+        "Main/GRenderExecute.cpp",
+        "Retail ambient lights have VapourSwitchTime = 0 (no vapour switching); "
+        "this source divides the time by it, so the dynamic-fog constants become "
+        "+/-inf and the fog lookup clamps to 'far' - the whole scene fogged over. "
+        "Treat 0 as 'no switching'.",
+        """				float fTest = fog.fTime / fog.fVapourSwitchTime;""",
+        """				float fTest = fog.fVapourSwitchTime > 0 ? fog.fTime / fog.fVapourSwitchTime : 0;   // [android] retail data has 0 here""",
+    ),
+    (
+        "Main/GRenderFactor.cpp",
+        "Diagnostics: say what the fog lookup was built from (bring-up of the "
+        "fog model against retail light data).",
+        """	fog = _fog;
+	NGfx::CTextureLock<NGfx::SPixel8888> lock( pFogLookup , 0, NGfx::INPLACE );""",
+        """	fog = _fog;
+	{	// [android] diagnostics
+		char szDiag[ 256 ];
+		sprintf( szDiag, "[android] fog lookup: camera h %.2f, vapour %.2f..%.2f density %.3f colour (%.2f %.2f %.2f), fog dist %.1f start %.1f colour (%.2f %.2f %.2f)\\n",
+			fog.fCameraHeight, fog.fVapourHeightStart, fog.fHeight, fog.fDensity, fog.vWaterColor.x, fog.vWaterColor.y, fog.vWaterColor.z,
+			fog.fDist, fog.fDistStart, fog.vFogColor.x, fog.vFogColor.y, fog.vFogColor.z );
+		OutputDebugString( szDiag );
+	}
+	NGfx::CTextureLock<NGfx::SPixel8888> lock( pFogLookup , 0, NGfx::INPLACE );""",
+    ),
+    (
+        "Main/GRenderFactor.cpp",
+        "Vapour density units.  This source's lookup makes VapourDensity an "
+        "opacity per world unit (alpha = density * distance inside the layer). "
+        "The retail AmbientLights table has densities of 0.07..1 with the "
+        "camera inside a 5-unit layer -- with per-unit density every map "
+        "would be opaque within a few metres, and the main menu is.  Read the "
+        "retail value as per 100 units (density 1 = opaque at F_FOG_DISTANCE), "
+        "which is the only reading under which the shipped values make sense.",
+        """			fAlpha *= fog.fDensity * fMult;""",
+        """			fAlpha *= fog.fDensity * 0.01f * fMult;   // [android] retail VapourDensity is per 100 units""",
+    ),
+    (
+        "ADOImport/BasicDB.h",
+        "Declare the retail-data lookups platform/db_retail.cpp provides: "
+        "records by authoring name, and the UI-texture id alias for the "
+        "renumbered cursor textures.",
+        """	void Serialize( CDataStream &file, CStructureSaver::EMode mode );""",
+        """	void Serialize( CDataStream &file, CStructureSaver::EMode mode );
+	// [android] retail game.db: record id by the table's UserName column (-1 if none),
+	// and the cursor-texture alias (see platform/db_retail.cpp)
+	int FindRecordByUserName( const char *pszTable, const char *pszUserName );
+	int AliasUITexture( int nID );""",
+    ),
+    (
+        "DBFormat/DataFormat.cpp",
+        "Cursor UITexture ids are hard-coded in this source and renumbered in "
+        "the retail table; resolve through the alias.",
+        """CUITexture* GetUITexture( int nID ) { return Get<CUITexture>( nID ); }""",
+        """CUITexture* GetUITexture( int nID ) { return Get<CUITexture>( NDatabase::AliasUITexture( nID ) ); }   // [android] retail ids""",
     ),
 ]
 

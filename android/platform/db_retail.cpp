@@ -197,6 +197,7 @@ static std::vector< SRelation > &GetRelations() { static std::vector< SRelation 
 bool bIsDatabaseLoading = false;
 static SCursor table;
 static hash_map< int, CObj< CObjectBase > > retailTables;   /* what game.db held */
+static std::map< std::string, std::map< std::string, int > > userNames;   /* table -> UserName -> ID */
 static int nMissingColumnWarnings = 0;
 }
 
@@ -236,6 +237,7 @@ void NDatabase::Import()
 {
     std::vector< STableDescr > &descrs = GetTableDescrs();
     int nTablesMatched = 0, nRecords = 0;
+    userNames.clear();
     /* pass 1: create every table's records by ID */
     for ( size_t i = 0; i < descrs.size(); ++i )
     {
@@ -266,7 +268,13 @@ void NDatabase::Import()
                     {
                         if ( !szRow.empty() ) szRow += " ";
                         szRow += c->first + "=";
-                        if ( c->second.first == 3 ) szRow += "\"" + SCursor::Narrow( table.GetString( c->first.c_str() ) ) + "\"";
+                        if ( c->second.first == 3 )
+                        {
+                            std::string szVal = SCursor::Narrow( table.GetString( c->first.c_str() ) );
+                            for ( size_t k = 0; k < szVal.size(); ++k )
+                                if ( szVal[ k ] == '\n' || szVal[ k ] == '\r' ) szVal[ k ] = ( szVal[ k ] == '\n' ) ? '|' : ' ';
+                            szRow += "\"" + szVal + "\"";
+                        }
                         else if ( c->second.first == 2 ) { char b[ 32 ]; snprintf( b, 32, "%g", table.GetFloat( c->first.c_str() ) ); szRow += b; }
                         else { char b[ 32 ]; snprintf( b, 32, "%d", table.GetInt( c->first.c_str() ) ); szRow += b; }
                     }
@@ -276,6 +284,13 @@ void NDatabase::Import()
         }
         GetTable( descrs[ i ].nTableID )->PreCreate( descrs[ i ].nTableID );
         nRecords += pRT->RowCount();
+        /* the authoring names, for looking records up by name (cursor aliases) */
+        if ( table.Has( "UserName" ) )
+        {
+            std::map< std::string, int > &names = userNames[ descrs[ i ].szTable ];
+            for ( table.MoveFirst(); !table.IsEof(); table.MoveNext() )
+                names.insert( std::make_pair( SCursor::Narrow( table.GetString( "UserName" ) ), table.GetInt( "ID" ) ) );
+        }
     }
     /* pass 2: import fields, every table's records already existing so
      * cross-references resolve */
@@ -359,6 +374,8 @@ void NDatabase::ImportField( const char *pszFieldName, CDBRecord **pRef, CDBTabl
     const int nID = table.GetInt( pszFieldName );
     if ( pDestTable && nID > 0 )
         *pRef = pDestTable->GetDBRecord( nID );
+    if ( getenv( "A5_DB_TRACE_REF" ) && strcmp( pszFieldName, getenv( "A5_DB_TRACE_REF" ) ) == 0 )
+        a5_log( A5_PRIORITY_INFO, "game.db: ref %s = %d -> table %p record %p (row %d)", pszFieldName, nID, (void*)pDestTable, (void*)*pRef, table.nRow );
 }
 void NDatabase::ImportRelation( CDBRecord *pSrc, CDBTableBase *pDestTable, std::vector< CPtr<CDBRecord> > *pRefs )
 {
@@ -417,4 +434,60 @@ void NDatabase::Serialize( CDataStream &file, CStructureSaver::EMode mode )
     Import();
     retailTables.clear();
     bIsDatabaseLoading = false;
+}
+
+/* ========================================================================== */
+/*  Lookups by authoring name, and the UI-texture alias table                   */
+/* ========================================================================== */
+int NDatabase::FindRecordByUserName( const char *pszTable, const char *pszUserName )
+{
+    std::map< std::string, std::map< std::string, int > >::const_iterator t = userNames.find( pszTable );
+    if ( t == userNames.end() )
+        return -1;
+    std::map< std::string, int >::const_iterator r = t->second.find( pszUserName );
+    return r == t->second.end() ? -1 : r->second;
+}
+
+/*  This source hard-codes UITexture ids for the cursors (Interface.cpp,
+ *  iGameStates.h); the retail table renumbered them (202 is "HitLocation -
+ *  Head" there, "Normal" is 292).  Map by the authoring name. */
+int NDatabase::AliasUITexture( int nID )
+{
+    struct SAlias { int nID; const char *pszName; };
+    static const SAlias ALIASES[] = {
+        { 202, "Normal" },                 /* N_DEFAULT_CURSOR / N_CURSOR_MOVE / ROTATE */
+        { 281, "Normal" },                 /* N_CURSOR_NORMAL */
+        { 217, "Busy" },
+        { 218, "Blocked" },
+        { 208, "Heal" },
+        { 203, "Attack - FireArm" },       /* N_CURSOR_ATTACK */
+        { 204, "Attack - ColdSteel" },     /* melee */
+        { 210, "Attack - FireArm" },       /* rifle */
+        { 209, "Attack - FireArm" },       /* pistol */
+        { 205, "Attack - FireArm" },       /* machine gun */
+        { 206, "Attack - Grenade" },
+        { 282, "HitLocation - Head" },
+        { 283, "HitLocation - Body" },
+        { 286, "HitLocation - Left Arm" },
+        { 287, "HitLocation - Right Arm" },
+        { 284, "HitLocation - Left Leg" },
+        { 285, "HitLocation - Right Leg" },
+        { 207, "Use" },                    /* open/close */
+        { 579, "Unload" },
+    };
+    static std::map< int, int > resolved;
+    std::map< int, int >::const_iterator r = resolved.find( nID );
+    if ( r != resolved.end() )
+        return r->second;
+    int nResult = nID;
+    for ( size_t i = 0; i < sizeof( ALIASES ) / sizeof( ALIASES[ 0 ] ); ++i )
+        if ( ALIASES[ i ].nID == nID )
+        {
+            const int nFound = FindRecordByUserName( "UITextures", ALIASES[ i ].pszName );
+            if ( nFound > 0 )
+                nResult = nFound;
+            break;
+        }
+    resolved[ nID ] = nResult;
+    return nResult;
 }

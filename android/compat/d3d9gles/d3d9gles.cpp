@@ -1360,6 +1360,24 @@ public:
             if ( !used[ loc ] )
                 glDisableVertexAttribArray( loc );
     }
+    /*  A5_D3D_SKIP=name1,name2: skip draws whose pixel or vertex shader has
+     *  one of these names (bring-up: which pass paints what). */
+    bool SkipDraw()
+    {
+        static const char *pszSkip = (const char *)-1;
+        if ( pszSkip == (const char *)-1 ) pszSkip = getenv( "A5_D3D_SKIP" );
+        if ( !pszSkip || !*pszSkip )
+            return false;
+        const char *names[ 2 ] = { pVS && pVS->pEntry ? pVS->pEntry->name : 0, pPS && pPS->pEntry ? pPS->pEntry->name : 0 };
+        for ( int i = 0; i < 2; ++i )
+        {
+            if ( !names[ i ] ) continue;
+            const char *f = strstr( pszSkip, names[ i ] );
+            if ( f && ( f == pszSkip || f[ -1 ] == ',' ) && ( f[ strlen( names[ i ] ) ] == 0 || f[ strlen( names[ i ] ) ] == ',' ) )
+                return true;
+        }
+        return false;
+    }
     void PrepareDraw( int nBaseVertex )
     {
         ApplyFramebuffer();
@@ -1374,13 +1392,32 @@ public:
         if ( nTraceFrames < 0 ) { const char *e = getenv( "A5_D3D_TRACE" ); nTraceFrames = e ? atoi( e ) : 0; }
         if ( g_stats.nPresents >= nTraceFrames )
             return;
-        D3DGL_LOG( "d3d9gles: [f%d] %s type %d prims %u start %u | vs %s ps %s | rt %s %dx%d z %s | blend %d(%d,%d) ztest %d zwrite %d cull %d alphatest %d | tex0 %s | c10 %.4f %.4f %.4f %.4f",
+        /* A5_D3D_TRACE_CONST=14,15,16 appends those vs registers */
+        std::string szConst;
+        {
+            static const char *pszRegs = (const char *)-1;
+            if ( pszRegs == (const char *)-1 ) pszRegs = getenv( "A5_D3D_TRACE_CONST" );
+            const char *p = pszRegs;
+            while ( p && *p )
+            {
+                int r = atoi( p );
+                if ( r >= 0 && r < 96 )
+                {
+                    char b[ 96 ];
+                    snprintf( b, sizeof( b ), " c%d=(%.4f %.4f %.4f %.4f)", r, vsConst[ r ][ 0 ], vsConst[ r ][ 1 ], vsConst[ r ][ 2 ], vsConst[ r ][ 3 ] );
+                    szConst += b;
+                }
+                p = strchr( p, ',' );
+                if ( p ) ++p;
+            }
+        }
+        D3DGL_LOG( "d3d9gles: [f%d] %s type %d prims %u start %u | vs %s ps %s | rt %s %dx%d z %s | blend %d(%d,%d) ztest %d zwrite %d cull %d alphatest %d | tex0 %s | c10 %.4f %.4f %.4f %.4f%s",
                    g_stats.nPresents, pszKind, (int)type, nPrims, nStart,
                    pVS && pVS->pEntry ? pVS->pEntry->name : "?", pPS && pPS->pEntry ? pPS->pEntry->name : "?",
                    pRT == pBackColorSurface ? "backbuffer" : ( pRT ? "texture" : "none" ), nRTWidth, nRTHeight, pDS ? "yes" : "no",
                    (int)rs.alphaBlend, (int)rs.srcBlend, (int)rs.dstBlend, (int)rs.zEnable, (int)rs.zWrite, (int)rs.cull, (int)rs.alphaTest,
                    textures[ 0 ] ? "set" : "none",
-                   vsConst[ 10 ][ 0 ], vsConst[ 10 ][ 1 ], vsConst[ 10 ][ 2 ], vsConst[ 10 ][ 3 ] );
+                   vsConst[ 10 ][ 0 ], vsConst[ 10 ][ 1 ], vsConst[ 10 ][ 2 ], vsConst[ 10 ][ 3 ], szConst.c_str() );
     }
 
     /* ---- IDirect3DDevice9 --------------------------------------------- */
@@ -1824,6 +1861,7 @@ public:
     virtual HRESULT DrawPrimitive( D3DPRIMITIVETYPE PrimitiveType, UINT StartVertex, UINT PrimitiveCount )
     {
         ++g_stats.nDraws;
+        if ( SkipDraw() ) return D3D_OK;
         PrepareDraw( 0 );
         TraceDraw( "DrawPrimitive", PrimitiveType, PrimitiveCount, StartVertex );
         GLenum mode; GLsizei count;
@@ -1842,6 +1880,7 @@ public:
         if ( !pIB )
             return D3DERR_INVALIDCALL;
         ++g_stats.nDraws;
+        if ( SkipDraw() ) return D3D_OK;
         PrepareDraw( BaseVertexIndex );
         TraceDraw( "DrawIndexedPrimitive", PrimitiveType, PrimitiveCount, StartIndex );
         glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, pIB->buf.nGL );

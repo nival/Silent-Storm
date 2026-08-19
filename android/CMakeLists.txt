@@ -219,7 +219,7 @@ if(A5_BUILD_MAIN)
     #  the -I search order, both find it first).  Engine sources include their
     #  siblings as "Foo.h", which resolves relative to the including file and
     #  needs no -I.
-    target_include_directories(a5main PUBLIC ${COMPAT_DIR}/include ${ENGINE_GEN})
+    target_include_directories(a5main PUBLIC ${COMPAT_DIR}/include ${ENGINE_GEN} ${PLATFORM_DIR})
     target_compile_definitions(a5main PUBLIC ${ENGINE_DEFINITIONS})
     target_compile_options(a5main PRIVATE ${ENGINE_COMPILE_OPTIONS} -ferror-limit=0)
     target_link_libraries(a5main PUBLIC a5compat)

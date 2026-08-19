@@ -444,6 +444,8 @@ void android_main( android_app *pApp )
                         A5D3DGetFrameStats( &st, 1 );
                         LOGI( "game: %d steps, %d presents, interface depth %d; since last: %d draws (%d without program), %d clears",
                               nSteps, g_nPresents, a5_game_interface_depth(), st.nDraws, st.nDrawsNoProgram, st.nClears );
+                        if ( getenv( "A5_D3D_SHADERS" ) )
+                            LOGI( "game: draws by shader: %s", A5D3DDrawsByShader( 1 ) );
                     }
                 }
                 if ( !a5_game_step( 1 ) )

@@ -518,16 +518,18 @@ void CheckGameDatabase( CReport *pReport, const SDataMountResult &mount )
      *  -> Model -> Geometry.  Walk it for the main-menu variant (template 2425,
      *  iMainMenu.cpp) so a broken link shows up here rather than as an empty
      *  scene on the device. */
+    const struct { int nID; const char *pszName; } TEMPLATES[] = { { 2425, "main menu" }, { 2999, "allies hero screen" } };
+    for ( size_t t = 0; t < sizeof( TEMPLATES ) / sizeof( TEMPLATES[ 0 ] ); ++t )
     {
-        NDb::CTemplate *pTemplate = NDb::GetTemplate( 2425 );
+        NDb::CTemplate *pTemplate = NDb::GetTemplate( TEMPLATES[ t ].nID );
         NDb::CTemplVariant *pVar = 0;
         if ( pTemplate && !pTemplate->variants.empty() )
             pVar = pTemplate->variants[ 0 ];
         if ( !pVar )
-            pReport->Add( BOOT_WARN, 0, "template 2425 (main menu) has no variants" );
+            pReport->Add( BOOT_WARN, 0, "template %d (%s) has no variants", TEMPLATES[ t ].nID, TEMPLATES[ t ].pszName );
         else
         {
-            int nElements = (int)pVar->pFinalElements.size(), nPlacable = 0, nTemplates = 0, nObjects = 0, nModels = 0, nGeometry = 0;
+            int nElements = (int)pVar->pFinalElements.size(), nPlacable = 0, nTemplates = 0, nObjects = 0, nModels = 0, nGeometry = 0, nSkinned = 0;
             SRandomSeed seed;
             SRand rnd( seed );
             std::vector<int> noFlags;
@@ -545,22 +547,18 @@ void CheckGameDatabase( CReport *pReport, const SDataMountResult &mount )
                 if ( !IsValid( pObject->pModels[ 0 ] ) ) { if ( szFirstMissing.empty() ) szFirstMissing = "ContainerModel (Objects.Model0)"; continue; }
                 ++nModels;
                 if ( IsValid( pObject->pModels[ 0 ]->pModel ) && IsValid( pObject->pModels[ 0 ]->pModel->pGeometry ) )
+                {
                     ++nGeometry;
+                    if ( IsValid( pObject->pModels[ 0 ]->pModel->pSkeleton ) )
+                        ++nSkinned;
+                }
                 else if ( szFirstMissing.empty() ) szFirstMissing = "Model/Geometry (ContainerModels.ModelID -> Models.GeometryID)";
             }
-            {
-                CDBTable<NDb::CPlacableObject> *pPT = NDatabase::GetTable<NDb::CPlacableObject>();
-                int nCount = 0;
-                if ( pPT ) for ( CDBIterator<NDb::CPlacableObject> it( *pPT ); it.MoveNext(); ) ++nCount;
-                pReport->Add( BOOT_DETAIL, 0, "  PlacableObjects table %p: %d records; GetPlacableObject(1566) = %p; element[0] id %d pObject %p",
-                              (void*)pPT, nCount, (void*)NDb::GetPlacableObject( 1566 ), nElements ? pVar->pFinalElements[0]->GetRecordID() : -1,
-                              nElements ? (void*)pVar->pFinalElements[0]->pObject.GetPtr() : 0 );
-            }
             if ( nElements > 0 && nGeometry == nElements )
-                pReport->Add( BOOT_OK, 0, "template 2425 (main menu): %d final elements, all resolve to models with geometry", nElements );
+                pReport->Add( BOOT_OK, 0, "template %d (%s): %d final elements, all resolve to models with geometry (%d skinned)", TEMPLATES[ t ].nID, TEMPLATES[ t ].pszName, nElements, nSkinned );
             else
-                pReport->Add( nElements > 0 ? BOOT_FAIL : BOOT_WARN, 0, "template 2425 (main menu): %d final elements -> %d placable, %d templates, %d objects, %d container models, %d with geometry; first break: %s",
-                              nElements, nPlacable, nTemplates, nObjects, nModels, nGeometry, szFirstMissing.empty() ? "-" : szFirstMissing.c_str() );
+                pReport->Add( nElements > 0 ? BOOT_FAIL : BOOT_WARN, 0, "template %d (%s): %d final elements -> %d placable, %d templates, %d objects, %d container models, %d with geometry; first break: %s",
+                              TEMPLATES[ t ].nID, TEMPLATES[ t ].pszName, nElements, nPlacable, nTemplates, nObjects, nModels, nGeometry, szFirstMissing.empty() ? "-" : szFirstMissing.c_str() );
         }
     }
 

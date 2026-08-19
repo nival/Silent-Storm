@@ -512,6 +512,9 @@ struct A5D3DFrameStats
     int nPresents;         /* never reset: frames since device creation */
 };
 void A5D3DGetFrameStats( A5D3DFrameStats *pOut, int bReset );
+/*  "vs+ps:count ..." for the draws since the last reset (top 12); the first
+ *  call switches the counting on. */
+const char *A5D3DDrawsByShader( int bReset );
 
 /*  Maps a window pixel to a back-buffer pixel through the Present scaling, for
  *  the input layer.  Returns 0 if the point falls in the letterbox. */

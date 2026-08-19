@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <algorithm>
 #include <map>
 #include <string>
 #include <utility>
@@ -31,6 +32,8 @@ bool   DxtDecode( int nDxtVersion, const uint8_t *pIn, size_t nInSize, int nWidt
 size_t DxtLevelSize( int nDxtVersion, int nWidth, int nHeight );
 
 static A5D3DFrameStats g_stats;
+static bool g_bCountByShader = false;
+static std::map< std::string, int > g_drawsByShader;
 #define D3DGL_LOG( ... )  a5_log( A5_PRIORITY_INFO,  __VA_ARGS__ )
 #define D3DGL_WARN( ... ) a5_log( A5_PRIORITY_WARN,  __VA_ARGS__ )
 #define D3DGL_ERR( ... )  a5_log( A5_PRIORITY_ERROR, __VA_ARGS__ )
@@ -1384,6 +1387,11 @@ public:
         ApplyRenderStates();
         ApplyProgramAndUniforms();
         ApplyVertexLayout( nBaseVertex );
+        if ( g_bCountByShader )
+        {
+            std::string key = std::string( pVS && pVS->pEntry ? pVS->pEntry->name : "?" ) + "+" + ( pPS && pPS->pEntry ? pPS->pEntry->name : "?" );
+            ++g_drawsByShader[ key ];
+        }
     }
     /*  A5_D3D_TRACE=<n>: log every draw of the first n Present()s. */
     void TraceDraw( const char *pszKind, D3DPRIMITIVETYPE type, UINT nPrims, UINT nStart )
@@ -2055,6 +2063,26 @@ public:
 };
 
 }  // namespace
+
+const char *A5D3DDrawsByShader( int bReset )
+{
+    static std::string szOut;
+    g_bCountByShader = true;
+    std::vector< std::pair< int, std::string > > v;
+    for ( std::map< std::string, int >::const_iterator i = g_drawsByShader.begin(); i != g_drawsByShader.end(); ++i )
+        v.push_back( std::make_pair( -i->second, i->first ) );
+    std::sort( v.begin(), v.end() );
+    szOut.clear();
+    for ( size_t i = 0; i < v.size() && i < 12; ++i )
+    {
+        char b[ 160 ];
+        snprintf( b, sizeof( b ), "%s%s:%d", i ? " " : "", v[ i ].second.c_str(), -v[ i ].first );
+        szOut += b;
+    }
+    if ( bReset )
+        g_drawsByShader.clear();
+    return szOut.c_str();
+}
 
 void A5D3DGetFrameStats( A5D3DFrameStats *pOut, int bReset )
 {

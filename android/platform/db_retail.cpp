@@ -474,6 +474,7 @@ int NDatabase::AliasUITexture( int nID )
         { 285, "HitLocation - Right Leg" },
         { 207, "Use" },                    /* open/close */
         { 579, "Unload" },
+        { 492, "Normal Pen" },             /* the options / chapter-map cursor */
     };
     static std::map< int, int > resolved;
     std::map< int, int >::const_iterator r = resolved.find( nID );

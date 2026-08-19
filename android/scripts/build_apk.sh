@@ -13,7 +13,9 @@ set -euo pipefail
 
 HERE="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 ANDROID_DIR="$( dirname "$HERE" )"
-OUT_DIR="$ANDROID_DIR/build/apk"
+BUILD_ROOT="${A5_BUILD_ROOT:-$ANDROID_DIR/build}"
+case "$BUILD_ROOT" in /*) ;; *) BUILD_ROOT="$ANDROID_DIR/$BUILD_ROOT" ;; esac
+OUT_DIR="$BUILD_ROOT/apk"
 
 SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
 BUILD_TOOLS="$( ls -d "$SDK"/build-tools/* | sort -V | tail -1 )"
@@ -26,7 +28,7 @@ fi
 
 # Build any ABI whose library is missing.
 for ABI in "${ABIS[@]}"; do
-    if [ ! -f "$ANDROID_DIR/build/$ABI/libsilentstorm.so" ]; then
+    if [ ! -f "$BUILD_ROOT/$ABI/libsilentstorm.so" ]; then
         "$HERE/build.sh" "$ABI"
     fi
 done
@@ -48,7 +50,7 @@ mkdir -p "$OUT_DIR/staging"
 #    sets extractNativeLibs="true", may be compressed.
 for ABI in "${ABIS[@]}"; do
     mkdir -p "$OUT_DIR/staging/lib/$ABI"
-    cp "$ANDROID_DIR/build/$ABI/libsilentstorm.so" "$OUT_DIR/staging/lib/$ABI/"
+    cp "$BUILD_ROOT/$ABI/libsilentstorm.so" "$OUT_DIR/staging/lib/$ABI/"
 done
 ( cd "$OUT_DIR/staging" && zip -q -r "$OUT_DIR/base.apk" lib )
 

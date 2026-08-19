@@ -3074,6 +3074,24 @@ static void CreateChecker( CSWTextureData *pTexture )
 }""",
     ),
     (
+        "Main/GView.cpp",
+        "Diagnostics (A5_DEBUG_SKIN): what CreateSkin makes of a skinned model.",
+        """	CBind *pBind = new CBind;
+	pBind->pBinds = shareBinds.Get( pModel->pGeometry->GetRecordID() );""",
+        """	if ( getenv( "A5_DEBUG_SKIN" ) )   // [android]
+	{
+		char szBuf[ 256 ];
+		SPartKey k0; k0.nID = pModel->pGeometry->GetRecordID(); k0.nPart = 0;
+		sprintf( szBuf, "[android] CreateSkin: geometry %d skeleton %d, materials %d/%d/%d/%d, part0 file %s\\n",
+			pModel->pGeometry->GetRecordID(), IsValid( pModel->pSkeleton ) ? pModel->pSkeleton->GetRecordID() : -1,
+			IsValid( pModel->pMaterials[0] ) ? 1 : 0, IsValid( pModel->pMaterials[1] ) ? 1 : 0, IsValid( pModel->pMaterials[2] ) ? 1 : 0, IsValid( pModel->pMaterials[3] ) ? 1 : 0,
+			CResourceFileOpener::DoesExist( "Geometries", k0 ) ? "exists" : "MISSING" );
+		OutputDebugString( szBuf );
+	}
+	CBind *pBind = new CBind;
+	pBind->pBinds = shareBinds.Get( pModel->pGeometry->GetRecordID() );""",
+    ),
+    (
         "Main/GRenderExecute.cpp",
         "Retail ambient lights have VapourSwitchTime = 0 (no vapour switching); "
         "this source divides the time by it, so the dynamic-fog constants become "

@@ -17,7 +17,9 @@ if [ "${1:-}" = "--build" ]; then
     "$HERE/build_apk.sh"
 fi
 
-APK="$ANDROID_DIR/build/apk/silentstorm.apk"
+BUILD_ROOT="${A5_BUILD_ROOT:-$ANDROID_DIR/build}"
+case "$BUILD_ROOT" in /*) ;; *) BUILD_ROOT="$ANDROID_DIR/$BUILD_ROOT" ;; esac
+APK="$BUILD_ROOT/apk/silentstorm.apk"
 if [ ! -f "$APK" ]; then
     echo "no APK yet -- run scripts/build_apk.sh" >&2
     exit 1

@@ -1566,6 +1566,28 @@ RULES += [
         re.compile(r"(?<!typename )\bCTracker::pointer\b"),
         "typename CTracker::pointer",
     ),
+    (
+        "Main/BSPTree.cpp",
+        "BSPTree.cpp force-enables ASSERT (hard __debugbreak) and turns MSVC "
+        "optimisation off -- a debugging setup left on in the Jan03 tree.  "
+        "Clang ignores the MSVC optimize pragmas, but the live ASSERT makes "
+        "every BSP node constructor run mesh.CheckClosed(), an O(edges^2) mesh "
+        "sweep that dominated mission pass-calc on device (~35% of the game "
+        "thread; simpleperf, 2026-08).  Keep the hard ASSERT in debug builds "
+        "only; release gets the engine-wide no-op from StdAfx.h.",
+        "#undef ASSERT\n"
+        "#    define ASSERT( a ) if ( !(a) ) __debugbreak();\n"
+        "#pragma optimize(\"\", off)\n"
+        "#pragma optimize(\"p\", on)",
+        "// [android] Original: file-local hard ASSERT + MSVC optimisation off; kept\n"
+        "// only for debug builds (see prepare_sources.py for the why).\n"
+        "#ifndef NDEBUG\n"
+        "#undef ASSERT\n"
+        "#    define ASSERT( a ) if ( !(a) ) __debugbreak();\n"
+        "#endif\n"
+        "#pragma optimize(\"\", off)\n"
+        "#pragma optimize(\"p\", on)",
+    ),
 ]
 
 RULES += [
@@ -2668,6 +2690,19 @@ RULES += [
 		}
 	}""",
     ),
+    (
+        "Main/UICommCtrls.cpp",
+        "The soft keyboard: CEdit::Draw already knows, every frame, whether the "
+        "edit box has the input focus (the blinking-cursor test).  Ping the "
+        "platform layer while it does; android_main raises the Android keyboard "
+        "while the beacon stays fresh and lowers it when it goes stale.",
+        """	if ( !IsActive() )
+		bCursorVisible = false;""",
+        """	if ( !IsActive() )
+		bCursorVisible = false;
+	else
+		a5_note_edit_active();   // [android] focused edit box on screen: keep the soft keyboard up (windows.h)""",
+    ),
 ]
 
 # ---------------------------------------------------------------------------
@@ -2918,12 +2953,13 @@ bool CLoader::HasControl( const string &szID ) const   // [android]
 					pNext = new CScriptHoverButton( sEvent.pLoader->MakeLineControl( "next", 1, 0, 1 ), pInterface );
 					pNext->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 11130 ) + u"<center>" + GetDBString( 16820 ) );
 					pNext->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 11129 ) + u"<center>" + GetDBString( 16820 ) );
+					pNext->AddTextState( CHoverButton::STATE_DISABLED, GetDBString( 11129 ) + u"<color=0xFF5A4A30><center>" + GetDBString( 16820 ) );
 					pAxis = new CScriptHoverButton( sEvent.pLoader->GetControl( "axis" ), pInterface );
-					pAxis->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 11130 ) + GetDBString( 11131 ) );
-					pAxis->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 11129 ) + GetDBString( 11131 ) );
+					pAxis->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 11130 ) + u"<center>" + GetDBString( 11131 ) );
+					pAxis->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 11129 ) + u"<center>" + GetDBString( 11131 ) );
 					pAllies = new CScriptHoverButton( sEvent.pLoader->GetControl( "allies" ), pInterface );
-					pAllies->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 11130 ) + GetDBString( 11132 ) );
-					pAllies->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 11129 ) + GetDBString( 11132 ) );
+					pAllies->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 11130 ) + u"<center>" + GetDBString( 11132 ) );
+					pAllies->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 11129 ) + u"<center>" + GetDBString( 11132 ) );
 					break;
 				}
 				pBack = new CHoverButton( sEvent.pLoader->GetControl( "cancel" ) );
@@ -2931,9 +2967,85 @@ bool CLoader::HasControl( const string &szID ) const   // [android]
 				pBack->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 11129 ) + GetDBString( 11174 ) );""",
     ),
     (
+        "Main/iSideMenu.cpp",
+        "Side selection gives no feedback here: the retail screen showed the "
+        "choice through its template's script (OnScriptNotify), which this "
+        "snapshot does not have, so both sides look identical whatever you tap "
+        "and NEXT silently does nothing until one is picked.  Give CSideMenuUI "
+        "a Draw that holds the chosen side's label in its hover state and greys "
+        "NEXT out until there is a choice.  Declaration.",
+        """	ESide GetSide() const { return eSide; }
+
+	bool ProcessMessage( const SEvent &sEvent );
+};""",
+        """	ESide GetSide() const { return eSide; }
+
+	bool ProcessMessage( const SEvent &sEvent );
+	void Draw( const STime &sTime, NGScene::I2DGameView *pView );   // [android]
+};""",
+    ),
+    (
+        "Main/iSideMenu.cpp",
+        "Definition of the Draw declared above.",
+        """bool CSideMenuUI::ProcessMessage( const SEvent &sEvent )
+{""",
+        """void CSideMenuUI::Draw( const STime &sTime, NGScene::I2DGameView *pView )   // [android]
+{
+	if ( IsValid( pNext ) )
+		pNext->SetStyle( STYLE_ENABLED, eSide != SIDE_NONE );
+	if ( IsValid( pAxis ) )
+		pAxis->ForceState( eSide == SIDE_AXIS, CHoverButton::STATE_HOVER );
+	if ( IsValid( pAllies ) )
+		pAllies->ForceState( eSide == SIDE_ALLIES, CHoverButton::STATE_HOVER );
+	CWindow::Draw( sTime, pView );
+}
+////////////////////////////////////////////////////////////////////////////////////////////////////
+bool CSideMenuUI::ProcessMessage( const SEvent &sEvent )
+{""",
+    ),
+    (
         "Main/GTexture.cpp",
-        "Diagnostics: a texture that falls back to the checkerboard says which "
-        "one and why (missing file vs. unsupported format).",
+        "A DXT texture has two files in the data: id holds the DXT-compressed "
+        "image and id|0x01000000 the uncompressed one, and GetRealTextureID "
+        "picks by the gfx_texture_usedxt variable alone.  The data snapshot "
+        "ships some fifty textures -- character faces among them -- as only "
+        "the uncompressed variant, so the configured id opened nothing and "
+        "the texture drew as the checkerboard.  Prefer the configured "
+        "variant, but open the file that is actually there.",
+        """bool bDXTModeOn = true;
+static int GetRealTextureID( NDb::CTexture *pTex )
+{
+	int nID = pTex->GetRecordID();
+	if ( bDXTModeOn )
+		return nID;
+	if ( pTex->bIsDXT )
+		return nID | 0x01000000;
+	return nID;
+}""",
+        """bool bDXTModeOn = true;
+static int GetRealTextureID( NDb::CTexture *pTex )
+{
+	int nID = pTex->GetRecordID();
+	if ( !bDXTModeOn && pTex->bIsDXT )
+		nID |= 0x01000000;
+	// [android] fall back to the other variant when the configured one has no
+	// file; the extra existence checks run only on the already-failing path.
+	if ( !NGScene::CResourceFileOpener::DoesExist( "Textures", nID ) )
+	{
+		const int nOther = nID ^ 0x01000000;
+		if ( NGScene::CResourceFileOpener::DoesExist( "Textures", nOther ) )
+			return nOther;
+	}
+	return nID;
+}""",
+    ),
+    (
+        "Main/GTexture.cpp",
+        "Diagnostics: a texture with an unsupported format says so, and a "
+        "texture whose file is absent in both variants (a handful of ids are "
+        "missing from the data snapshot entirely) shows as a 1x1 of the "
+        "record's average colour -- what the engine itself shows while a "
+        "low-res request is pending -- instead of the checkerboard.",
         """		pValue = MakeTexture( hdr, eUsage, eWrap );
 		if ( !RealLoadTexture( pValue.GetPtr(), file.GetStream(), hdr, 0, 0, hdr.nSizeX, hdr.nSizeY, hdr.nNumMipLevels ) )
 		{
@@ -2956,9 +3068,10 @@ bool CLoader::HasControl( const string &szID ) const   // [android]
 	}
 	else
 	{
-		ASSERT(0);
-		DebugTrace( "[android] texture %d (file %d): file missing or empty - checkerboard\\n", pTex->GetRecordID(), GetRealTextureID( pTex ) );
-		CreateChecker();
+		DebugTrace( "[android] texture %d (file %d): file missing or empty - average colour\\n", pTex->GetRecordID(), GetRealTextureID( pTex ) );
+		pValue = NGfx::MakeTexture( 1, 1, 1, NGfx::SPixel8888::ID, eUsage, eWrap );
+		NGfx::CTextureLock<NGfx::SPixel8888> lock( pValue, 0, NGfx::INPLACE );
+		lock[0][0].color = pTex->dwAverageColor;
 	}""",
     ),
     (
@@ -3134,6 +3247,182 @@ static void CreateChecker( CSWTextureData *pTexture )
 			pPlay = new CHoverButton( sEvent.pLoader->GetControl( "play" ) );""",
     ),
     (
+        "Main/iHeroMenu.cpp",
+        "The six nationality controls in the retail template (container 354) are "
+        "bare hit areas over the 3D characters, and the retail screen named the "
+        "one you picked from its template's script -- which this snapshot does "
+        "not have.  Nothing then distinguishes a picked character from an "
+        "unpicked one, and the only sign the tap registered at all is NEXT "
+        "un-greying.  Carry a label window and put the chosen character's name "
+        "in it.  Member, next to the buttons it belongs with.",
+        """	CObj<CScriptButton> pNat3Male;
+	CObj<CScriptButton> pNat3Female;
+	ZEND int operator&( CStructureSaver &f ) { f.Add(1,(CWindow*)this); f.Add(2,&pSide); f.Add(3,&pInterface); f.Add(4,&pSelectedPers); f.Add(5,&pBack); f.Add(6,&pPlay); f.Add(7,&pCustomChar); f.Add(8,&pNat1Male); f.Add(9,&pNat1Female); f.Add(10,&pNat2Male); f.Add(11,&pNat2Female); f.Add(12,&pNat3Male); f.Add(13,&pNat3Female); return 0; }""",
+        """	CObj<CScriptButton> pNat3Male;
+	CObj<CScriptButton> pNat3Female;
+	CObj<CText> pPickName;   // [android] names the character you picked
+	ZEND int operator&( CStructureSaver &f ) { f.Add(1,(CWindow*)this); f.Add(2,&pSide); f.Add(3,&pInterface); f.Add(4,&pSelectedPers); f.Add(5,&pBack); f.Add(6,&pPlay); f.Add(7,&pCustomChar); f.Add(8,&pNat1Male); f.Add(9,&pNat1Female); f.Add(10,&pNat2Male); f.Add(11,&pNat2Female); f.Add(12,&pNat3Male); f.Add(13,&pNat3Female); f.Add(14,&pPickName); return 0; }""",
+    ),
+    (
+        "Main/iHeroMenu.cpp",
+        "Create the label under the row of characters (the template's view is "
+        "y 128..640 and the characters end at y 553), in the retail menu font.",
+        """				pNat3Male = new CScriptButton( sEvent.pLoader->GetControl( "n3male" ), pInterface );
+				pNat3Female = new CScriptButton( sEvent.pLoader->GetControl( "n3female" ), pInterface );
+				break;""",
+        """				pNat3Male = new CScriptButton( sEvent.pLoader->GetControl( "n3male" ), pInterface );
+				pNat3Female = new CScriptButton( sEvent.pLoader->GetControl( "n3female" ), pInterface );
+				pPickName = new CText( SWindowInfo( this, SPoint( 37, 596 ), SPoint( 949, 40 ), "pickname", STYLE_VISIBLE | STYLE_ENABLED | STYLE_TRANSPARENT ) );
+				break;""",
+    ),
+    (
+        "Main/iHeroMenu.cpp",
+        "Keep the label in step with the pick, and do not dereference pPlay "
+        "unchecked -- on a template without a 'play' control it is null.",
+        """void CHeroMenuUI::Draw( const STime &sTime, NGScene::I2DGameView *pView )
+{
+	pPlay->SetStyle( STYLE_ENABLED, IsValid( pSelectedPers ) );
+	CWindow::Draw( sTime, pView );
+}""",
+        """void CHeroMenuUI::Draw( const STime &sTime, NGScene::I2DGameView *pView )
+{
+	if ( IsValid( pPlay ) )
+		pPlay->SetStyle( STYLE_ENABLED, IsValid( pSelectedPers ) );
+	if ( IsValid( pPickName ) )   // [android]
+	{
+		const u16string wsName = IsValid( pSelectedPers ) && IsValid( pSelectedPers->pName ) ?
+			GetDBString( 11130 ) + u"<center>" + GetDBString( pSelectedPers->pName ) : u16string();
+		if ( pPickName->GetText() != wsName )
+			pPickName->SetText( wsName );
+	}
+	CWindow::Draw( sTime, pView );
+}""",
+    ),
+    (
+        "Main/iCharGen.cpp",
+        "CUSTOM CHARACTER is a dead end on the retail data: container 345 has "
+        "every control this screen wants except 'play' and 'cancel', so both "
+        "come back as the loader's zero-sized invisible stand-in and the screen "
+        "has no way forward and no way back.  It also asks for font strings "
+        "10892/10893/10894, which the retail Strings table does not have (only "
+        "10895 BACK and 10896 NEXT).  Lay BACK and NEXT out on the template's "
+        "text line in the menu font the other screens use (11129/11130).",
+        """			pPlay = new CHoverButton( sEvent.pLoader->GetControl( "play" ) );
+			pPlay->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 10894 ) + GetDBString( 10896 ) );
+			pPlay->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 10892 ) + GetDBString( 10896 ) );
+			pPlay->AddTextState( CHoverButton::STATE_DISABLED, GetDBString( 10893 ) + GetDBString( 10896 ) );
+
+			pBack = new CHoverButton( sEvent.pLoader->GetControl( "cancel" ) );
+			pBack->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 10894 ) + GetDBString( 10895 ) );
+			pBack->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 10892 ) + GetDBString( 10895 ) );
+			pBack->AddTextState( CHoverButton::STATE_DISABLED, GetDBString( 10893 ) + GetDBString( 10895 ) );
+""",
+        """			// [android] retail template: BACK / NEXT along the text line
+			if ( !sEvent.pLoader->HasControl( "play" ) )
+			{
+				const u16string wsHover = GetDBString( 11130 ) + u"<center>", wsNormal = GetDBString( 11129 ) + u"<center>";
+				const u16string wsDisabled = GetDBString( 11129 ) + u"<color=0xFF5A4A30><center>";
+				pBack = new CHoverButton( sEvent.pLoader->MakeLineControl( "cancel", 1, 0, 2 ) );
+				pBack->AddTextState( CHoverButton::STATE_HOVER, wsHover + GetDBString( 10895 ) );
+				pBack->AddTextState( CHoverButton::STATE_NORMAL, wsNormal + GetDBString( 10895 ) );
+				pBack->AddTextState( CHoverButton::STATE_DISABLED, wsDisabled + GetDBString( 10895 ) );
+				pPlay = new CHoverButton( sEvent.pLoader->MakeLineControl( "play", 1, 1, 2 ) );
+				pPlay->AddTextState( CHoverButton::STATE_HOVER, wsHover + GetDBString( 10896 ) );
+				pPlay->AddTextState( CHoverButton::STATE_NORMAL, wsNormal + GetDBString( 10896 ) );
+				pPlay->AddTextState( CHoverButton::STATE_DISABLED, wsDisabled + GetDBString( 10896 ) );
+			}
+			else
+			{
+			pPlay = new CHoverButton( sEvent.pLoader->GetControl( "play" ) );
+			pPlay->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 10894 ) + GetDBString( 10896 ) );
+			pPlay->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 10892 ) + GetDBString( 10896 ) );
+			pPlay->AddTextState( CHoverButton::STATE_DISABLED, GetDBString( 10893 ) + GetDBString( 10896 ) );
+
+			pBack = new CHoverButton( sEvent.pLoader->GetControl( "cancel" ) );
+			pBack->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 10894 ) + GetDBString( 10895 ) );
+			pBack->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 10892 ) + GetDBString( 10895 ) );
+			pBack->AddTextState( CHoverButton::STATE_DISABLED, GetDBString( 10893 ) + GetDBString( 10895 ) );
+			}
+""",
+    ),
+    (
+        "Main/iCharGen.cpp",
+        "Retail container 345 carries four *_hilight overlays -- a later "
+        "revision's 'which section are you editing' highlight, which this "
+        "source knows nothing about and so never turns off.  They are topmost, "
+        "so nation/class/names_hilight wash the middle column yellow "
+        "permanently, and stats_hilight is an opaque white rectangle over "
+        "(505,178)-(978,618): the entire right-hand page, hiding every "
+        "attribute and skill readout behind it.  A highlight that is on for "
+        "every section at once is the same as none, so hide them.",
+        """	case EVENT_TEMPLATELOADCOMPLETE:
+		{
+			pName = GetUIWindow<CEdit>( this, "name" );""",
+        """	case EVENT_TEMPLATELOADCOMPLETE:
+		{
+			{	// [android] see above: overlays this source cannot drive
+				static const char *HILIGHTS[] = { "stats_hilight", "nation_hilight", "class_hilight", "names_hilight" };
+				for ( int i = 0; i < sizeof( HILIGHTS ) / sizeof( HILIGHTS[0] ); ++i )
+				{
+					CWindow *pHilight = GetChildByID( HILIGHTS[i] );
+					if ( IsValid( pHilight ) )
+						pHilight->SetStyle( STYLE_VISIBLE, false );
+				}
+			}
+			pName = GetUIWindow<CEdit>( this, "name" );""",
+    ),
+    (
+        "Main/iFaceGen.cpp",
+        "The face screen crashed the game on every frame, which is why nothing "
+        "past the hero screen could be reached.  Retail container 361 has no "
+        "'voice' scroll -- it has three voice1/voice2/voice3 buttons instead -- "
+        "so GetControl returns the loader's zero-sized stand-in, and the "
+        "CScroll built on it manufactures its own thumb through "
+        "GetUIWindow<CSlider>.  A CSlider made that way is created outside "
+        "CLoader, so it never gets the EVENT_TEMPLATELOADCOMPLETE that sets its "
+        "own pSlider, and the first CSlider::Update dereferences null.  Build "
+        "the voice scroll only when the template really has one.",
+        """			pFaceScroll = new CFaceGenScroll( sEvent.pLoader->GetControl( "face" ) );
+			pFaceScroll->SetStyle( SCRLSTYLE_HORZ, true );
+			pVoiceScroll = new CFaceGenScroll( sEvent.pLoader->GetControl( "voice" ) );
+			pVoiceScroll->SetStyle( SCRLSTYLE_HORZ, true );""",
+        """			pFaceScroll = new CFaceGenScroll( sEvent.pLoader->GetControl( "face" ) );
+			pFaceScroll->SetStyle( SCRLSTYLE_HORZ, true );
+			if ( sEvent.pLoader->HasControl( "voice" ) )   // [android] see above
+			{
+				pVoiceScroll = new CFaceGenScroll( sEvent.pLoader->GetControl( "voice" ) );
+				pVoiceScroll->SetStyle( SCRLSTYLE_HORZ, true );
+			}""",
+    ),
+    (
+        "Main/iFaceGen.cpp",
+        "and then there may be no voice scroll to size.",
+        """			pFaceScroll->SetMaxValue( N_MAX_HEADS - 1 );
+			pVoiceScroll->SetMaxValue( N_MAX_VOICES - 1 );""",
+        """			pFaceScroll->SetMaxValue( N_MAX_HEADS - 1 );
+			if ( IsValid( pVoiceScroll ) )   // [android]
+				pVoiceScroll->SetMaxValue( N_MAX_VOICES - 1 );""",
+    ),
+    (
+        "Main/iFaceGen.cpp",
+        "The voice branch tests for \"face\" as well, so it never ran even on "
+        "the data this source was written for -- a copy-paste slip.  Give it "
+        "its own id and the same guard.  (nVoice is still not read by anything "
+        "in this snapshot: CreateMerc takes the voice from the CRPGPers.)",
+        """			else if ( sEvent.szID == "face" )
+			{
+				nVoice = pVoiceScroll->GetValue();
+				UpdateUnit();
+				return true;
+			}""",
+        """			else if ( sEvent.szID == "voice" && IsValid( pVoiceScroll ) )   // [android] read "face" -- copy-paste slip
+			{
+				nVoice = pVoiceScroll->GetValue();
+				UpdateUnit();
+				return true;
+			}""",
+    ),
+    (
         "Main/wMain.cpp",
         "After the auto-load scripts, run the port's Lua prelude "
         "(platform/script_prelude.cpp): stand-ins for the ~100 script API "
@@ -3173,10 +3462,17 @@ void CWorld::RunAutoLoadScripts()
 	}
 }""",
         """			NScript::luaLastError.stack.push_back( trace );
-			{	// [android]
-				char szBuf[ 320 ];
-				sprintf( szBuf, "[android] script error '%s' at depth %d: %s in %s (line %d, defined %d)\\n", s, nDepth,
-					debugInfo.name ? debugInfo.name : "?", debugInfo.source ? debugInfo.source : "?", debugInfo.currentline, debugInfo.linedefined );
+			{	// [android] snprintf, and the source clamped: a chunk loaded
+				//  from a buffer carries the whole buffer as its 'source'
+				char szBuf[ 512 ], szSource[ 96 ];
+				const char *pszSource = debugInfo.source ? debugInfo.source : "?";
+				strncpy( szSource, pszSource, sizeof( szSource ) - 1 );
+				szSource[ sizeof( szSource ) - 1 ] = 0;
+				for ( char *p = szSource; *p; ++p )
+					if ( *p == '\\n' || *p == '\\r' )
+						*p = ' ';
+				snprintf( szBuf, sizeof( szBuf ), "[android] script error '%.160s' at depth %d: %.64s in %s (line %d, defined %d)\\n", s ? s : "?", nDepth,
+					debugInfo.name ? debugInfo.name : "?", szSource, debugInfo.currentline, debugInfo.linedefined );
 				OutputDebugString( szBuf );
 			}
 		}
@@ -3308,6 +3604,178 @@ RULES += [
 	// [android] loose data files (retail layout): the same lookup CFileResource opens with
 	return a5_stat_exists( GetFileResourceName( pszResName, GetID( key ) ).c_str() ) != 0;
 }""",
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+#  Rule set 18: places that leave the path-network grid.  SPathPlace packs the
+#  grid coordinates into 8-bit fields and IsValid() only checks the layer, so a
+#  place stepped off the edge wraps to 255 and is used as if it were real.
+# ---------------------------------------------------------------------------
+RULES += [
+    (
+        "Main/aiGrid.cpp",
+        "CPathNetwork::GetDeployPlace spreads a party around its deploy spot by "
+        "+-1 tile without a bounds check; on a spot in row 0 that wrapped y to "
+        "255 and crashed the first mission in CPathNetwork::GetCP.  Clamp to "
+        "the grid.",
+        """	if ( nDisplacement != 0 )
+	{
+		int nDY = nRealNum % 3 - 1, nDX = nRealNum / 3 - 1;
+		res.SetXY( res.GetX() + nDX, res.GetY() + nDY );
+	}""",
+        """	if ( nDisplacement != 0 )
+	{
+		int nDY = nRealNum % 3 - 1, nDX = nRealNum / 3 - 1;
+		// [android] SPathPlace keeps x and y in 8 bits each, so a deploy spot on
+		// the first row or column of the grid wraps to 255 here, and nothing
+		// downstream notices: SPathPlace::IsValid only checks the layer, so the
+		// off-grid place reaches CPathNetwork::GetCP, which indexes
+		// squareLevel[255 / 16][..] on a 4x4 array and dereferences whatever it
+		// reads.  Keep the displaced place inside the grid the layer covers --
+		// the bounds the routine already computed for plMax.
+		res.SetXY( Min( Max( 0, (int)res.GetX() + nDX ), layer.tiles.GetXSize() - 1 ),
+			Min( Max( 0, (int)res.GetY() + nDY ), layer.tiles.GetYSize() - 1 ) );
+	}""",
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+#  Rule set 19: a control the retail template does not have is replaced by an
+#  invisible stand-in, and the stand-in was never initialised.
+# ---------------------------------------------------------------------------
+#  GetUIWindow() invents a zero-sized window when a container has no control by
+#  the name this source asks for -- that is the engine's own fallback and it is
+#  what keeps the retail templates (a revision ahead of this snapshot) usable.
+#  What it does not do is give the invented window the EVENT_TEMPLATELOADCOMPLETE
+#  that every real control receives, so a control that resolves its own children
+#  in that handler is left holding nulls.  Container 361 (face generation) is the
+#  case that showed it: retail replaced this source's "voice" scroll with three
+#  voice1/voice2/voice3 buttons, so CFaceGenScroll -> CScroll asked for a
+#  "slider" that is not there, got a stand-in CSlider whose own thumb was never
+#  resolved, and CSlider::Update dereferenced it on the first frame of the
+#  screen -- the game died on NEXT out of character selection.
+RULES += [
+    (
+        "Main/UIWindow.h",
+        "GetUIWindow: send the invented stand-in the EVENT_TEMPLATELOADCOMPLETE "
+        "a real control gets, so it resolves its own children instead of "
+        "keeping the nulls it was constructed with.",
+        """	csSystem << "UI-ERROR: UI Container not complete, control " << szID << " in container " << pContainer->GetWindowID() << " not found" << endl;
+	return new TYPE( SWindowInfo( pContainer, SPoint( 0, 0 ), SPoint( 0, 0 ), szID, STYLE_ENABLED ) );""",
+        """	csSystem << "UI-ERROR: UI Container not complete, control " << szID << " in container " << pContainer->GetWindowID() << " not found" << endl;
+	// [android] The stand-in has to be initialised the way a control that came
+	// out of the template is, or it is left half-built.  Controls that look
+	// their own children up in EVENT_TEMPLATELOADCOMPLETE -- CSlider's thumb,
+	// CScroll's slider -- keep the null they were constructed with, and the
+	// next CSlider::Update() dereferences it every frame.  The event carries
+	// nothing a stand-in cannot supply: no handler of it reads sEvent.pLoader.
+	// The depth guard is there because a stand-in may in turn ask for children
+	// it does not have; the chains that occur change type at every step and so
+	// terminate on their own, but nothing in the engine enforces that.
+	TYPE *pStandIn = new TYPE( SWindowInfo( pContainer, SPoint( 0, 0 ), SPoint( 0, 0 ), szID, STYLE_ENABLED ) );
+	if ( a5_ui_standin_depth() < 8 )
+	{
+		++a5_ui_standin_depth();
+		pStandIn->ProcessMessage( SEvent( EVENT_TEMPLATELOADCOMPLETE ) );
+		--a5_ui_standin_depth();
+	}
+	return pStandIn;""",
+    ),
+    (
+        "Main/UIWindow.h",
+        "Shared recursion counter for the stand-in initialisation above.",
+        """template<class TYPE>
+TYPE* GetUIWindow( CWindow *pContainer, const string &szID )
+{""",
+        """// [android] recursion depth of the stand-in initialisation below; inline so the
+// whole program shares one counter however many translation units instantiate
+// GetUIWindow.
+inline int& a5_ui_standin_depth() { static int nDepth = 0; return nDepth; }
+template<class TYPE>
+TYPE* GetUIWindow( CWindow *pContainer, const string &szID )
+{""",
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+#  Rule set 20: a party deployed in the corner of the map.
+# ---------------------------------------------------------------------------
+#  CWorld::AddPlayer resolves a deploy spot to a grid place with GetNearPlaces()
+#  and then takes res[0].  That is scan order, not distance.  On the first
+#  mission the party landed on grid row 0 -- the edge of the map -- the camera
+#  opened over the void beyond it (a black screen with the HUD on top) and the
+#  units answered every order with "Path not found".  It is also what made the
+#  GetDeployPlace wrap of rule set 18 reachable in the first place.
+RULES += [
+    (
+        "Main/wMain.cpp",
+        "Say which place a deploy spot resolved to, not just its floor: the spot "
+        "and the place are in different coordinate systems and the distance "
+        "between them is the thing that goes wrong.",
+        """			char buf[128];
+			sprintf( buf, "Deploy spot at floor %d\\n", nMinFloor );
+			OutputDebugString( buf );""",
+        """			char buf[256];   // [android] the place it resolved to, and how far that is
+			const CVec2 ptChosen = NAI::SPosition( p, pPathNetwork ).GetCPNoHeight();
+			sprintf( buf, "Deploy spot %d at floor %d: (%d,%d) layer %d, at %.2f %.2f - %.2f m from the spot (%.2f %.2f %.2f)\\n",
+				k, nMinFloor, (int)p.GetX(), (int)p.GetY(), (int)p.GetLayer(), ptChosen.x, ptChosen.y,
+				sqrt( fabs2( CVec2( s.pos.ptPos.x, s.pos.ptPos.y ) - ptChosen ) ),
+				s.pos.ptPos.x, s.pos.ptPos.y, s.pos.ptPos.z );
+			OutputDebugString( buf );""",
+    ),
+    (
+        "Main/wMain.cpp",
+        "CWorld::AddPlayer: among the deploy places on the lowest floor take the "
+        "one nearest the spot, not the first the grid scan happened to produce.",
+        """			NAI::SPathPlace p = res[0];
+			int nMinFloor = pPathNetwork->GetFloor( p.GetLayer() );
+			for ( int i = 0; i < res.size(); ++i )
+			{
+				if ( pPathNetwork->GetFloor( res[i].GetLayer() ) < nMinFloor )
+				{
+					nMinFloor = pPathNetwork->GetFloor( res[i].GetLayer() );
+					p = res[i];
+				}
+			}""",
+        """			NAI::SPathPlace p = res[0];
+			int nMinFloor = pPathNetwork->GetFloor( p.GetLayer() );
+			for ( int i = 0; i < res.size(); ++i )
+			{
+				if ( pPathNetwork->GetFloor( res[i].GetLayer() ) < nMinFloor )
+					nMinFloor = pPathNetwork->GetFloor( res[i].GetLayer() );
+			}
+			// [android] ...and, among the places on that floor, the one actually
+			// closest to the spot.  GetNearPlaces fills its vector by scanning
+			// each layer in increasing y, so res[0] is the lowest-y place inside
+			// the sphere, not the nearest one; the sphere is grown from 0.63 until
+			// something falls in it, and the distance test is 3D, so a spot whose
+			// authored z sits above the ground -- as every outdoor spot on a flat
+			// map does -- pushes the radius out far enough to reach the edge of
+			// the grid, and the party deploys in the corner of the map with the
+			// camera looking off it.  Compare without the height for exactly that
+			// reason: the z offset is the same for every candidate and only adds
+			// noise.
+			{
+				float fBest = 0;
+				bool bHave = false;
+				const CVec2 ptSpot( s.pos.ptPos.x, s.pos.ptPos.y );
+				for ( int i = 0; i < res.size(); ++i )
+				{
+					if ( pPathNetwork->GetFloor( res[i].GetLayer() ) != nMinFloor )
+						continue;
+					const float fDist = fabs2( ptSpot - NAI::SPosition( res[i], pPathNetwork ).GetCPNoHeight() );
+					if ( !bHave || fDist < fBest )
+					{
+						fBest = fDist;
+						bHave = true;
+						p = res[i];
+					}
+				}
+			}""",
     ),
 ]
 

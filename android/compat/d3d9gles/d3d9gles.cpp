@@ -2110,7 +2110,9 @@ void A5D3DSetPlatformHooks( const A5D3DPlatformHooks *pHooks )
         g_hooks = *pHooks;
 }
 
-int A5D3DWindowToBackBuffer( float fWindowX, float fWindowY, float *pfBackX, float *pfBackY )
+/*  The letterboxed rectangle the back buffer is presented into: dw x dh at
+ *  (dx, dy) inside the window.  Returns 0 before the device exists. */
+static int GetPresentRect( int *pnX, int *pnY, int *pnW, int *pnH )
 {
     if ( !g_pDevice || !g_pDevice->pp.BackBufferWidth )
         return 0;
@@ -2119,10 +2121,31 @@ int A5D3DWindowToBackBuffer( float fWindowX, float fWindowY, float *pfBackX, flo
     const UINT bw = g_pDevice->pp.BackBufferWidth, bh = g_pDevice->pp.BackBufferHeight;
     int dw = nWinW, dh = (int)( (long long)nWinW * bh / bw );
     if ( dh > nWinH ) { dh = nWinH; dw = (int)( (long long)nWinH * bw / bh ); }
-    const int dx = ( nWinW - dw ) / 2, dy = ( nWinH - dh ) / 2;
+    *pnX = ( nWinW - dw ) / 2;
+    *pnY = ( nWinH - dh ) / 2;
+    *pnW = dw;
+    *pnH = dh;
+    return 1;
+}
+
+int A5D3DWindowToBackBuffer( float fWindowX, float fWindowY, float *pfBackX, float *pfBackY )
+{
+    int dx, dy, dw, dh;
+    if ( !GetPresentRect( &dx, &dy, &dw, &dh ) )
+        return 0;
     if ( fWindowX < dx || fWindowY < dy || fWindowX >= dx + dw || fWindowY >= dy + dh )
         return 0;
-    if ( pfBackX ) *pfBackX = ( fWindowX - dx ) * (float)bw / (float)dw;
-    if ( pfBackY ) *pfBackY = ( fWindowY - dy ) * (float)bh / (float)dh;
+    if ( pfBackX ) *pfBackX = ( fWindowX - dx ) * (float)g_pDevice->pp.BackBufferWidth / (float)dw;
+    if ( pfBackY ) *pfBackY = ( fWindowY - dy ) * (float)g_pDevice->pp.BackBufferHeight / (float)dh;
+    return 1;
+}
+
+int A5D3DBackBufferScale( float *pfScaleX, float *pfScaleY )
+{
+    int dx, dy, dw, dh;
+    if ( !GetPresentRect( &dx, &dy, &dw, &dh ) )
+        return 0;
+    if ( pfScaleX ) *pfScaleX = (float)g_pDevice->pp.BackBufferWidth / (float)dw;
+    if ( pfScaleY ) *pfScaleY = (float)g_pDevice->pp.BackBufferHeight / (float)dh;
     return 1;
 }

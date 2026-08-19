@@ -17,7 +17,10 @@ project(silentstorm CXX C)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(ENGINE_GEN  ${CMAKE_CURRENT_SOURCE_DIR}/gen)
+#  ENGINE_GEN may be overridden (-DENGINE_GEN=... / A5_GEN_DIR for build.sh) so
+#  a session that re-stages does not pull the sources out from under another
+#  session's running build in the shared gen/.
+set(ENGINE_GEN  ${CMAKE_CURRENT_SOURCE_DIR}/gen CACHE PATH "staged engine sources (tools/prepare_sources.py --out)")
 set(COMPAT_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/compat)
 
 #  Headers only the host build needs.  <malloc.h> already exists on Android, and

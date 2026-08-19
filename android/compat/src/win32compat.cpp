@@ -1273,6 +1273,16 @@ extern "C" int  a5_get_pointer_absolute( LONG *px, LONG *py )
 }
 extern "C" void a5_get_pointer_position( LONG *px, LONG *py ) { if ( px ) *px = g_nPointerX; if ( py ) *py = g_nPointerY; }
 
+/*  The focused-edit-box beacon: the UI pings while an edit box with the input
+ *  focus is drawn (prepare_sources rule on CEdit::Draw), the platform layer
+ *  polls to raise/lower the Android soft keyboard. */
+namespace { DWORD g_tLastEditActive = 0; }
+extern "C" void a5_note_edit_active( void ) { g_tLastEditActive = GetTickCount(); }
+extern "C" int  a5_edit_was_active( unsigned int nWithinMs )
+{
+    return g_tLastEditActive != 0 && GetTickCount() - g_tLastEditActive <= nWithinMs;
+}
+
 /* ------------------------------------------------------------------------- */
 /*  Window geometry (see the note in windows.h)                                */
 /* ------------------------------------------------------------------------- */

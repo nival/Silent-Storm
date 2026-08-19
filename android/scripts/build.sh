@@ -30,6 +30,10 @@ fi
 #    A5_BUILD_ROOT=build-x A5_CMAKE_EXTRA="-DA5_AUDIO_NULL=ON" scripts/build.sh arm64-v8a
 BUILD_ROOT="${A5_BUILD_ROOT:-$ANDROID_DIR/build}"
 case "$BUILD_ROOT" in /*) ;; *) BUILD_ROOT="$ANDROID_DIR/$BUILD_ROOT" ;; esac
+#  A5_GEN_DIR likewise gives the staged sources their own directory (default
+#  android/gen), so re-staging never disturbs a build running from another one.
+GEN_DIR="${A5_GEN_DIR:-$ANDROID_DIR/gen}"
+case "$GEN_DIR" in /*) ;; *) GEN_DIR="$ANDROID_DIR/$GEN_DIR" ;; esac
 
 ABIS=( "$@" )
 if [ ${#ABIS[@]} -eq 0 ]; then
@@ -37,7 +41,7 @@ if [ ${#ABIS[@]} -eq 0 ]; then
 fi
 
 echo "==> staging engine sources"
-python3 "$ANDROID_DIR/tools/prepare_sources.py"
+python3 "$ANDROID_DIR/tools/prepare_sources.py" --out "$GEN_DIR"
 
 for ABI in "${ABIS[@]}"; do
     echo "==> building $ABI"
@@ -47,6 +51,7 @@ for ABI in "${ABIS[@]}"; do
         -DANDROID_PLATFORM=android-24 \
         -DANDROID_NDK="$NDK" \
         -DA5_BUILD_MAIN="${A5_BUILD_MAIN:-ON}" \
+        -DENGINE_GEN="$GEN_DIR" \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo ${A5_CMAKE_EXTRA:-} >/dev/null
     cmake --build "$BUILD_ROOT/$ABI"
 done

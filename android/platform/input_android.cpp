@@ -15,7 +15,15 @@
  *                               the engine's cursor reads it (see the Cursor.cpp
  *                               rule) instead of integrating MOUSE_AXIS deltas
  *   - hardware keys          -> the named key (ESC, ENTER, arrows, letters...)
- *   - two-finger vertical drag -> MOUSE_AXIS_Z (wheel) for zoom
+ *   - two-finger pinch       -> MOUSE_AXIS_Z (wheel): camera zoom
+ *   - two-finger drag        -> MOUSE_BUTTON2 held + MOUSE_AXIS_X/Y deltas:
+ *                               the PC middle-button camera pan
+ *                               (input.cfg: camera_forward/camera_strafe)
+ *   - two-finger twist       -> MOUSE_BUTTON1 held + MOUSE_AXIS_X deltas:
+ *                               camera rotation (input.cfg: camera_rotate)
+ *   - three-finger drag      -> MOUSE_BUTTON1 held + MOUSE_AXIS_X/Y deltas:
+ *                               the PC right-button drag -- rotate and tilt
+ *                               (input.cfg: camera_rotate/camera_pitch)
  *
  *  Nothing here knows about the game; a5_input_* is what android_main calls.
  */
@@ -27,6 +35,7 @@
 
 #include <android/keycodes.h>
 #include <deque>
+#include <mutex>
 #include <string>
 
 namespace NInput
@@ -113,10 +122,15 @@ int ControlByAndroidKey( int nKey )
     return -1;
 }
 
+/*  a5_input_* runs on the input thread (android_main.cpp attaches the
+ *  AInputQueue to its own looper so touches are consumed even while the
+ *  engine blocks the game thread), PumpMessages on the game thread -- the
+ *  hand-off queue is the one thing they share. */
+std::mutex             g_queueMutex;
 std::deque< SMessage > g_pending;     /* filled by a5_input_*, drained by PumpMessages */
-std::deque< SMessage > g_messages;    /* handed out by GetMessage */
+std::deque< SMessage > g_messages;    /* handed out by GetMessage; game thread only */
 bool g_bInitialised = false;
-int  g_nMouseButton0, g_nMouseButton1, g_nAxisZ;
+int  g_nMouseButton0, g_nMouseButton1, g_nMouseButton2, g_nAxisX, g_nAxisY, g_nAxisZ;
 
 void Push( int nControl, bool bState, int nParam )
 {
@@ -129,6 +143,7 @@ void Push( int nControl, bool bState, int nParam )
     m.nParam = nParam;
     m.bState = bState;
     m.tTime = GetTickCount();
+    std::lock_guard< std::mutex > lock( g_queueMutex );
     g_pending.push_back( m );
 }
 }  // namespace
@@ -138,6 +153,9 @@ bool InitInput( HWND, bool, int )
     g_bInitialised = true;
     g_nMouseButton0 = ControlByName( "MOUSE_BUTTON0" );
     g_nMouseButton1 = ControlByName( "MOUSE_BUTTON1" );
+    g_nMouseButton2 = ControlByName( "MOUSE_BUTTON2" );
+    g_nAxisX = ControlByName( "MOUSE_AXIS_X" );
+    g_nAxisY = ControlByName( "MOUSE_AXIS_Y" );
     g_nAxisZ = ControlByName( "MOUSE_AXIS_Z" );
     return true;
 }
@@ -145,6 +163,7 @@ bool DoneInput() { g_bInitialised = false; return true; }
 
 void PumpMessages( bool bFocus )
 {
+    std::lock_guard< std::mutex > lock( g_queueMutex );
     if ( !bFocus )
     {
         g_pending.clear();
@@ -240,9 +259,16 @@ extern "C" void a5_input_key( int nAndroidKeyCode, int bDown )
 }
 extern "C" void a5_input_mouse_button( int nButton, int bDown )
 {
-    NInput::Push( nButton == 0 ? NInput::g_nMouseButton0 : NInput::g_nMouseButton1, bDown != 0, 0 );
+    const int nControl = nButton == 0 ? NInput::g_nMouseButton0
+                       : nButton == 1 ? NInput::g_nMouseButton1
+                                      : NInput::g_nMouseButton2;
+    NInput::Push( nControl, bDown != 0, 0 );
 }
 extern "C" void a5_input_wheel( int nDelta )
 {
     NInput::Push( NInput::g_nAxisZ, true, nDelta );
+}
+extern "C" void a5_input_axis( int nAxis, int nDelta )
+{
+    NInput::Push( nAxis == 0 ? NInput::g_nAxisX : NInput::g_nAxisY, true, nDelta );
 }

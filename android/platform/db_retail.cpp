@@ -33,6 +33,7 @@
 #include "ADOImport/BasicDB.h"
 #include "Misc/BasicFactory.h"
 #include "FileIO/BasicChunk1.h"
+#include "DBFormat/DataMap.h"
 #include "a5_log.h"
 
 #include <map>
@@ -432,6 +433,18 @@ void NDatabase::Serialize( CDataStream &file, CStructureSaver::EMode mode )
         f.Add( 1, &retailTables );
     }
     Import();
+    /*  The shipping game builds the cross-record links right after importing
+     *  (Soft/Andy/May03/Main.cpp: NDatabase::Import( true ) then
+     *  NDb::BuildMapLinks( translation )).  This snapshot's own Main.cpp does
+     *  not, because at that point game.db was written by DataImport with the
+     *  links already serialised into the records; the retail game.db is the
+     *  generic column dump, so they have to be rebuilt here or they are simply
+     *  absent.  Without this, CSkeleton::pAnimations is empty for every
+     *  skeleton -- units are created with no animation at all and the first
+     *  CUnitAnimator::StandStill dereferences the null it gets back -- and the
+     *  debris materials, item-model-to-uniform and grenade tables are empty
+     *  too. */
+    NDb::BuildMapLinks();
     retailTables.clear();
     bIsDatabaseLoading = false;
 }

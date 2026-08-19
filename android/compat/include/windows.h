@@ -403,6 +403,11 @@ void a5_get_pointer_position( LONG *px, LONG *py );
 /* Non-zero once a touch has been seen; the engine's cursor then reads the
  * absolute position instead of integrating mouse deltas. */
 int  a5_get_pointer_absolute( LONG *px, LONG *py );
+/* Focused-edit-box beacon: the UI calls the first while an edit box holds the
+ * input focus (once per drawn frame); the platform layer polls the second to
+ * raise/lower the soft keyboard. */
+void a5_note_edit_active( void );
+int  a5_edit_was_active( unsigned int nWithinMs );
 #ifdef __cplusplus
 }
 #endif

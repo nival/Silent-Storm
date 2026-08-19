@@ -14,24 +14,108 @@ not as a summary of what happened.
         MiscDll       ████████████████░░░░  builds; console vars untested
         DBFormat      ████████████████████  ported; loads the retail game.db (130/130 tables, 222k records)
         Image         ████████████████████  ported; DXT1/3/5 software decoder in platform/
-        Main          ████████████████████  269/269 files compile and link; the game loop runs on device
+        Main          ████████████████████  269/269 files compile and link; the game loop runs on device, a mission loads
         d3d9gles      ██████████████████░░  D3D9 device on GLES 3.0; 155 shaders translated; first frames drawn
-        Input         ████████████░░░░░░░░  NInput on Android keys/touch; camera scheme still to design
-        FModSound     ████████████████░░░░  NFMSound on a software mixer + AAudio; music streams on device, 3D voices untested in a mission
+        Input         ██████████████████░░  NInput on Android keys/touch; gestures: pinch = zoom, drag = pan, twist / 3 fingers = rotate, tap = right click
+        FModSound     ████████████████░░░░  NFMSound on a software mixer + AAudio; music streams on device, 3D voices not yet exercised
 ```
 
 **On the Samsung Z Fold7 (2026-08-19):** the app boots, runs the boot harness
-(now 34 checks incl. the DB object chain), loads `Complete/game.db` in ~0.5 s,
+(now 45 checks incl. the DB object chain and the menu chain), loads `Complete/game.db` in ~0.5 s,
 and goes to the **main menu**, which is now the real thing: the retail scene
 (burning wreck, smoke and ember particles, misty terrain, the animated 'Man'),
 logo, version, five buttons laid out on the template's text line, and a proper
 cursor. Taps click (one tap: the cursor and the button arrive in the same
 frame). CAMPAIGN → side selection (its own scene, NEXT/BACK) → hero screen
 (six characters, BACK / CUSTOM CHARACTER / NEXT), OPTIONS opens the book UI.
-Menu music plays through the AAudio mixer. Not yet: a mission — `template 4414`
-via `A5_START_CFG` crashes in `NAI::CPathNetwork::GetCP` from the unit
-animator (next item); the character-generation and face screens are untested;
-the retail scripts hit one `nil` function this snapshot's script API lacks.
+Menu music plays through the AAudio mixer.
+
+**The whole menu chain walks by touch**, down to character generation and the
+face screen. Every screen on it needed work, and all of it was the same
+underlying difference: **the retail UI containers are a revision ahead of this
+source snapshot**, and the source does nothing about the mismatch — a control
+it asks for and the data does not have comes back from `CLoader::GetControl`
+as a zero-sized, style-0 stand-in with only a console line, so the button is
+invisible, unclickable and silent, while a control the data has and the source
+does not know about is drawn anyway. What that cost, screen by screen:
+
+* **side selection** (container 353) has `axis`/`allies` hit areas but no
+  next/cancel, and the retail screen showed which side you had picked through
+  its template's script (`OnScriptNotify`), which this snapshot does not have.
+  Both sides therefore looked identical whatever you tapped, and NEXT was
+  enabled from the start but silently did nothing until a side was chosen.
+  `CSideMenuUI` now has a `Draw` that holds the chosen side's label in its
+  hover state and greys NEXT out until there is a choice.
+* **hero selection** (container 354) is six bare hit areas over the 3D
+  characters, named by the same missing script. Nothing distinguished a picked
+  character from an unpicked one; the only sign a tap had registered was NEXT
+  un-greying. The screen now carries a label under the row with the chosen
+  character's name.
+* **character generation** (container 345) had no way in or out: the container
+  has every control the screen wants *except* `play` and `cancel`, so both were
+  invisible stand-ins and the screen was a dead end. It also ships four
+  `*_hilight` overlays from a later revision that this source never turns off;
+  `stats_hilight` is an opaque white rectangle over (505,178)-(978,618) — the
+  entire right-hand page — so every attribute and skill readout was hidden
+  behind it. BACK/NEXT are laid out on the template's text line and the
+  overlays are hidden at template load.
+* **face generation** (container 361) *crashed the game on its first frame*,
+  which is why nothing past the hero screen could be reached. It has three
+  `voice1`/`voice2`/`voice3` buttons where this source expects one `voice`
+  scroll; the `CScroll` built on the stand-in asked `GetUIWindow` for its thumb
+  and got a stand-in `CSlider`, and a stand-in never received the
+  `EVENT_TEMPLATELOADCOMPLETE` that sets *its* own `pSlider`, so
+  `CSlider::Update` dereferenced null every frame. Fixed at the general level —
+  `GetUIWindow` now sends the stand-in that event (rule set 19) — and the voice
+  scroll is no longer built at all when the template has no `voice` control.
+
+Two platform bugs on the same path: a tap on the black border around the
+letterboxed 1024x768 image pressed the mouse button at the cursor's *previous*
+position, so tapping the ~40% of a 2520x1080 screen that is border clicked
+whatever the cursor happened to be over; and `configChanges` did not list
+`smallestScreenSize`, so folding or unfolding the device destroyed the
+NativeActivity and re-ran the whole boot — mount, `game.db`, harness — from
+scratch.
+
+Known gaps on this path, both cosmetic: the voice selector is not merely
+unwired but unimplemented in this snapshot — `CFaceGenUI::nVoice` is set and
+read by nothing, and `NRPG::CreateMerc( pPers, pHead, bHero )` takes no voice
+at all, so the unit's voice comes from its `CRPGPers` record. (The branch that
+was meant to read it tested `szID == "face"` twice, so it has been dead since
+2003; the id is corrected, the value still goes nowhere.) And a screen that
+takes more than five seconds to load will raise an ANR if it is tapped while
+loading: the input queue is attached to the game thread's looper by
+`native_app_glue`, so nothing drains it while a load is in progress.
+
+**A mission runs.** `template 4414` via `A5_START_CFG` now loads and plays: the
+tactical HUD (Menu / Leave / Objectives / Journal, the party bar, the selected
+soldier's weapon and ammo, START COMBAT), terrain and vegetation, and the
+soldiers standing in their idle pose with the selection ring under them.
+Steady frames, ~2,200 draws per five seconds. Two bugs stood between the menu
+and this, and the second of them was affecting far more than missions:
+
+* `NAI::CPathNetwork::GetDeployPlace` spreads a party ±1 tile around its deploy
+  spot with no bounds check. This map's deploy spot resolves to grid row 0, so
+  `y - 1` wrapped in `SPathPlace`'s 8-bit field to 255; `SPathPlace::IsValid()`
+  only checks the *layer*, so the off-grid place travelled all the way to
+  `CPathNetwork::GetCP`, which indexed `squareLevel[255/16][..]` on a 4×4 array
+  and crashed. The same file's `GetLockAreaInternal` has exactly the bounds
+  check `GetDeployPlace` is missing, so this is an original-engine oversight,
+  not a 64-bit artefact. Clamped (rule set 18).
+* **`NDb::BuildMapLinks()` was never called.** It walks the Animations table
+  after the import and hangs each animation on its skeleton (and wires debris
+  materials, item models to uniforms, and more). Every skeleton had an empty
+  animation map, so every unit was created with no pose at all and the first
+  `CUnitAnimator::StandStill` dereferenced the null it got back. See Traps.
+
+A third bug showed up once the mission was reachable and is fixed too: the
+party deployed on the map's edge and the camera opened over the void beyond it
+— a black screen with the HUD on top, which looks exactly like a hang. See
+"A deploy spot was resolved by scan order" in Traps.
+
+Still open here: the retail scripts hit one `nil` function this snapshot's
+script API lacks, and the tactical HUD draws a blue checkerboard where
+`Textures/615` should be — that file is absent from the retail data.
 
 Three bugs found on the way that were invisible before and affect *everything*
 (details in Traps): DB cross-references imported from a file where the target
@@ -43,7 +127,8 @@ part skipped); particle effect records carry 32-bit offsets in pointer fields.
 Debug switches (in `<external files>/env.txt`, `NAME=VALUE` per line):
 `A5_D3D_TRACE=<frames>` logs every draw and a back-buffer histogram,
 `A5_D3D_FORCE=nocull,nodepth,noblend` overrides state, `A5_DB_DUMP=1` /
-`A5_DB_DUMP_ROWS=<table>` dump the database, `A5_AUDIO_TRACE=1` logs every
+`A5_DB_DUMP_ROWS=<table>` dump the database, `A5_UI_DUMP=1` lists the menu
+UI containers control by control, `A5_AUDIO_TRACE=1` logs every
 sound/stream start (the 5-s `audio:` stats line — voices, streams, output
 peak, underruns — is always on), `A5_START_CFG=<cfg>` runs that cfg instead of
 `start.cfg` (e.g. a file with `template 4414` to drop into a mission). The
@@ -156,9 +241,21 @@ differences — is [RENDERER.md](RENDERER.md). In short:
   control names mapped to Android key codes, mouse buttons and wheel; touches
   become an absolute pointer position (`a5_set_pointer_position`) that
   `Cursor.cpp` reads in preference to integrated deltas (staging rule).
-  `Bind.cpp` (action mapping) is portable and sits on top. A turn-based tactical
-  game maps reasonably onto touch, but the port still needs a camera-control
-  scheme of its own (pinch/drag → the camera binds).
+  `Bind.cpp` (action mapping) is portable and sits on top. Camera gestures ride
+  the retail binds (`cfg/input.cfg`): a two-finger **pinch** is the mouse wheel
+  (`-camera_zoom 'MOUSE_AXIS_Z'`), a two-finger **drag** holds `MOUSE_BUTTON2`
+  and feeds `MOUSE_AXIS_X/Y` deltas — the PC middle-button pan
+  (`+camera_forward` / `-camera_strafe`) — and a two-finger **tap** is still the
+  right click. Rotation rides the right-button binds: a two-finger **twist**
+  (the finger line turning >10° before the drag slop trips) holds
+  `MOUSE_BUTTON1` and feeds `MOUSE_AXIS_X` (`-camera_rotate`), and a
+  **three-finger drag** is the whole PC right-button drag — horizontal rotates,
+  vertical tilts (`-camera_pitch`). A gesture is one mode for its whole life
+  (pan/zoom, twist, or orbit) because pan holds button 2 and rotation holds
+  button 1, and with both held one axis message would drive both camera binds.
+  So a starting pinch never lands as a phantom left click, a single finger's
+  press is held back ~90 ms (or until it moves/lifts) before it reaches the
+  engine.
 * **Audio** — done for what can be exercised so far. `FModSound/FMsound.h` is
   the seam (Main only ever calls `NFMSound::*`); `platform/audio_android.cpp`
   implements it on a software mixer of its own: 64 sample voices + streams,
@@ -186,8 +283,8 @@ differences — is [RENDERER.md](RENDERER.md). In short:
   is needed on the device: `Versions/Current/res/Music/*.wav` → `<data
   root>/res/Music/` (`push_data.sh --full` covers `Sounds/`, not this).
   On the Z Fold7 the main-menu track streams at 48 kHz with 0 underruns.
-  Not yet exercised: 3D voices and sample fades — they need a mission, and
-  missions still crash in `NAI::CPathNetwork::GetCP` on unit creation.
+  Not yet exercised: 3D voices and sample fades. A mission now loads, so
+  they are reachable — that is the next thing to listen to.
   Open: OpenSL ES for API 24/25 (silent there today), the app's audio focus.
 * **Video**: Bink is licensed and absent. Cutscenes should be skipped or the
   container replaced; nothing else depends on it.
@@ -276,6 +373,70 @@ patterns before trusting any other blob loader.
 thread; `lua_executeThreads()` is commented out in `ldo.cpp` because the engine
 pumps threads from its frame loop. Call `Script::ExecuteThreads()` or nothing
 happens and no error is reported.
+
+**Links that are not columns have to be rebuilt after the import.**
+`NDb::BuildMapLinks()` walks the imported tables and hangs each record on the
+one it belongs to: every `Animations` row onto its skeleton's `pAnimations`,
+every `Debris` row onto its material, item models onto uniforms. This
+snapshot's own `Main.cpp` never calls it, because the `game.db` it was written
+against came out of `DataImport`, which called `BuildMapLinks()` itself and
+then serialised the records *with the links already in them*. The retail
+`game.db` is the generic column dump (see 1b), so nothing rebuilds them — and
+the later `Soft/Andy/May03/Main.cpp` shows what the shipping game did:
+`NDatabase::Import( true )` immediately followed by `NDb::BuildMapLinks()`.
+The port does that at the end of `NDatabase::Serialize`
+(`platform/db_retail.cpp`). Symptom before: every skeleton's animation map
+empty, so `CSkeleton::GetAnimation` returned null for every unit and the first
+`CUnitAnimator::StandStill` in a mission wrote through it. Nothing logged.
+The harness now checks it (119/124 skeletons carry animations, 2,045 in all).
+**Any other function in `DBFormat`/`Main` with no caller in the port is
+suspect for the same reason** — grep before assuming the data is at fault.
+
+**65 of the 3,672 `Terrain/` files use an older record layout.**
+`CMETerrainInfo::operator&` reads the terrain through `f.Add( 21, &info )`,
+and 3,607 files do store it nested in chunk 21. The other 65 (18 of them
+substantial — `Terrain/202` holds a real 257×257 heightmap) store
+`STerrainInfo`'s fields at the record's *top* level, the way an earlier
+`CMETerrainInfo` wrote them. `Add` finds no chunk 21, returns without a word,
+and `info` stays default: flat terrain, no type map. Not yet hit by any map
+that has been loaded, but it is waiting. The chunk format is easy to read
+offline if you need to check a file — `<id:1><len><payload>`, where `len` is
+one byte `>> 1` unless bit 0 is set, in which case it is a little-endian dword
+`>> 1`, and chunks nest inside payloads.
+
+**A deploy spot was resolved by scan order, not by distance.**
+`CWorld::AddPlayer` finds the grid place for a deploy spot with
+`GetNearPlaces( SSphere( ptPos, fR ) )`, growing `fR` from 0.63 until the
+result is non-empty, and then takes `res[0]`. `AddNearPoints` fills that
+vector by scanning the layer in increasing y, so `res[0]` is the lowest-y tile
+in the sphere, not the closest one. On `template 4414` the spot's authored z
+is 1.49 m above ground that really is flat at 0 (verified against the retail
+`Terrain/8006`, which ships an all-zero heightmap), so the 3D distance test
+fails until `fR` reaches 2.52 — by which point the sphere touches the map's
+bottom edge and row 0 wins. That is what put the party on the edge of the map,
+and it is what made the `GetDeployPlace` wrap reachable. Fixed (rule set 20):
+among the places on the lowest floor, take the one nearest the spot. The
+"Deploy spot" line now says which place a spot resolved to and how far that is
+from it — on `template 4414` the four spots land 0.05–0.33 m from their marks,
+where spot 0 used to land 1.74 m away and off the terrain.
+
+**The retail UI containers are a revision ahead of this source, and nothing
+says so.** `CLoader::GetControl` answers a request for a control the container
+does not have with a zero-sized, style-0 `SWindowInfo` and one line on the
+console — so the code goes on to build a button that is invisible, unclickable
+and silent, and the screen looks finished while a button does nothing. In the
+other direction, controls the data has and the source does not know about are
+created and drawn by the loader anyway, which is how an opaque `stats_hilight`
+came to sit over half of character generation. Every menu screen in the game
+was affected in one direction or the other. Two things follow: use
+`HasControl()` and lay a stand-in out yourself rather than trusting
+`GetControl`, and dump the container before believing a screen is complete —
+`A5_UI_DUMP=1` on the host harness lists every control of the menu containers
+with its id, type, rectangle, depth, colour and texture count. The nastiest
+form of this is a stand-in that other code then queries: a stand-in is created
+outside `CLoader`, so before rule set 19 it never got
+`EVENT_TEMPLATELOADCOMPLETE` and any child pointer it resolves in that handler
+stayed null — which is what killed the face screen every frame.
 
 **The shipped `.res` files are one revision newer than this source snapshot.**
 Signature `0x96948A22`, not the `0x95938921` in `FilesPackage.cpp`. The chunk

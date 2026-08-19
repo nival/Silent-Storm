@@ -520,4 +520,8 @@ const char *A5D3DDrawsByShader( int bReset );
  *  the input layer.  Returns 0 if the point falls in the letterbox. */
 int  A5D3DWindowToBackBuffer( float fWindowX, float fWindowY, float *pfBackX, float *pfBackY );
 
+/*  Back-buffer pixels per window pixel of the presented image (for converting
+ *  touch deltas).  Returns 0 before the device exists. */
+int  A5D3DBackBufferScale( float *pfScaleX, float *pfScaleY );
+
 #endif

@@ -26,6 +26,7 @@
 #include "Script/Script.h"
 #include "ADOImport/BasicDB.h"
 #include "DBFormat/DataFormat.h"
+#include "DBFormat/DataAnimation.h"
 #include "DBFormat/DataInterface.h"
 #include "DBFormat/DataMap.h"
 #include "DBFormat/DataObject.h"
@@ -378,6 +379,113 @@ void CheckGameScripts( CReport *pReport, const SDataMountResult &mount )
     }
 }
 
+/*  The path from the main menu into a game: side selection (UI container 353)
+ *  -> hero selection (354, and each side's own nHeroSelectTemplate 3D scene)
+ *  -> the six default characters the hero screen offers.  The port lays its
+ *  buttons out on the retail templates, so what those templates actually carry
+ *  -- and whether the six characters resolve at all -- decides whether a game
+ *  can be started.  A5_UI_DUMP=1 lists every control with its rectangle.
+ */
+void CheckMenuChain( CReport *pReport )
+{
+    const bool bDump = getenv( "A5_UI_DUMP" ) != 0;
+
+    static const struct { int nID; const char *pszName; } CONTAINERS[] = {
+        { 347, "main menu" }, { 353, "side selection" }, { 354, "hero selection" },
+        { 345, "character generation" }, { 361, "face generation" },
+        { 161, "options" }, { 335, "save/load" },
+    };
+    for ( size_t i = 0; i < sizeof( CONTAINERS ) / sizeof( CONTAINERS[ 0 ] ); ++i )
+    {
+        NDb::CUIContainer *pC = NDb::GetUIContainer( CONTAINERS[ i ].nID );
+        if ( !pC )
+        {
+            pReport->Add( BOOT_FAIL, 0, "UI container %d (%s) not in the database", CONTAINERS[ i ].nID, CONTAINERS[ i ].pszName );
+            continue;
+        }
+        if ( !bDump )
+            continue;
+        pReport->Add( BOOT_DETAIL, 0, "container %d (%s): %dx%d, %d controls",
+                      CONTAINERS[ i ].nID, CONTAINERS[ i ].pszName, pC->nWidth, pC->nHeight, (int)pC->controls.size() );
+        for ( size_t c = 0; c < pC->controls.size(); ++c )
+        {
+            const NDb::CUIControl *p = pC->controls[ c ];
+            if ( !p )
+                continue;
+            int nTextures = 0;
+            for ( int t = 0; t < NDb::N_CTRL_TEXTURES; ++t )
+                if ( p->pTextures[ t ] ) ++nTextures;
+            pReport->Add( BOOT_DETAIL, 0, "    %-20s type %2d  (%4d,%4d)-(%4d,%4d)  depth %3d  colour %08X  vis %d top %d bot %d transp %d  tex %d  %s%s",
+                          p->szID.c_str(), (int)p->type, p->rect.x1, p->rect.y1, p->rect.x2, p->rect.y2,
+                          p->nDepth, (unsigned)p->nColor, p->bVisible ? 1 : 0, p->bTopmost ? 1 : 0,
+                          p->bBottommost ? 1 : 0, p->bTransparent ? 1 : 0, nTextures,
+                          p->pString ? "string " : "", p->pNestedUIContainer ? "nested" : "" );
+        }
+    }
+
+    /*  Sides 1 (Axis) and 2 (Allies): the hero screen indexes
+     *  defaultPersesSet[0..5] from its six nationality buttons, and enables its
+     *  NEXT button only when the pick is valid -- so a side whose six entries do
+     *  not resolve cannot start a game at all. */
+    static const struct { int nID; const char *pszName; } SIDES[] = { { 1, "Axis" }, { 2, "Allies" } };
+    for ( size_t i = 0; i < sizeof( SIDES ) / sizeof( SIDES[ 0 ] ); ++i )
+    {
+        NDb::CSide *pSide = NDb::GetDBSide( SIDES[ i ].nID );
+        if ( !pSide )
+        {
+            pReport->Add( BOOT_FAIL, 0, "side %d (%s) not in the database", SIDES[ i ].nID, SIDES[ i ].pszName );
+            continue;
+        }
+        int nDefaults = 0;
+        std::string szIDs;
+        for ( size_t n = 0; n < pSide->defaultPersesSet.size(); ++n )
+        {
+            char szNum[ 24 ];
+            if ( pSide->defaultPersesSet[ n ] )
+            {
+                ++nDefaults;
+                sprintf( szNum, "%d", pSide->defaultPersesSet[ n ]->GetRecordID() );
+            }
+            else
+                strcpy( szNum, "-" );
+            if ( !szIDs.empty() ) szIDs += ",";
+            szIDs += szNum;
+        }
+        if ( bDump )
+            for ( size_t n = 0; n < pSide->defaultPersesSet.size(); ++n )
+            {
+                const NDb::CRPGPers *pPers = pSide->defaultPersesSet[ n ];
+                if ( !pPers )
+                    continue;
+                std::string szName;
+                if ( pPers->pName )
+                    for ( size_t c = 0; c < pPers->pName->szStr.size(); ++c )
+                    {
+                        const char16_t ch = pPers->pName->szStr[ c ];
+                        szName += ch < 0x80 ? (char)ch : '?';
+                    }
+                pReport->Add( BOOT_DETAIL, 0, "    default %d: pers %d '%s' name-string %s",
+                              (int)n, pPers->GetRecordID(), pPers->szUserName.c_str(),
+                              pPers->pName ? szName.c_str() : "(none)" );
+            }
+
+        int nMale = 0, nFemale = 0;
+        for ( size_t n = 0; n < pSide->malePersesSet.size(); ++n )
+            if ( pSide->malePersesSet[ n ] ) ++nMale;
+        for ( size_t n = 0; n < pSide->femalePersesSet.size(); ++n )
+            if ( pSide->femalePersesSet[ n ] ) ++nFemale;
+
+        const bool bTemplate = pSide->nHeroSelectTemplate != 0;
+        if ( nDefaults == 6 && bTemplate )
+            pReport->Add( BOOT_OK, 0, "side %d (%s): hero template %d, 6/6 default characters (%s), %d male / %d female class sets",
+                          SIDES[ i ].nID, SIDES[ i ].pszName, pSide->nHeroSelectTemplate, szIDs.c_str(), nMale, nFemale );
+        else
+            pReport->Add( nDefaults ? BOOT_WARN : BOOT_FAIL, 0,
+                          "side %d (%s): hero template %d, %d/6 default characters (%s), %d male / %d female class sets - the hero screen cannot start a game without a valid pick",
+                          SIDES[ i ].nID, SIDES[ i ].pszName, pSide->nHeroSelectTemplate, nDefaults, szIDs.c_str(), nMale, nFemale );
+    }
+}
+
 /*  The whole object database.  Game/Main.cpp does exactly this at start-up:
  *  open game.db, NDatabase::Serialize( f, READ ).  Every record class in
  *  DBFormat/ deserialises itself through operator&, and every cross-record
@@ -562,6 +670,45 @@ void CheckGameDatabase( CReport *pReport, const SDataMountResult &mount )
         }
     }
 
+    /*  Links that are not columns: NDb::BuildMapLinks() walks the Animations
+     *  table after the import and hangs each animation on its skeleton.  The
+     *  shipping game calls it right after NDatabase::Import(); this source
+     *  snapshot's own Main.cpp does not, because its game.db was written with
+     *  the links already serialised.  The retail game.db is the generic column
+     *  dump, so the port rebuilds them in NDatabase::Serialize (db_retail.cpp).
+     *  Without it every skeleton has an empty animation map and the first unit
+     *  created in a mission dies in CUnitAnimator::StandStill. */
+    {
+        CDBTable<NDb::CSkeleton> *pTable = NDatabase::GetTable<NDb::CSkeleton>();
+        int nSkeletons = 0, nWithAnims = 0, nWithPose = 0, nAnims = 0;
+        if ( pTable )
+        {
+            CDBIterator<NDb::CSkeleton> it( *pTable );
+            while ( it.MoveNext() )
+            {
+                NDb::CSkeleton *pS = it.Get();
+                if ( !pS )
+                    continue;
+                ++nSkeletons;
+                if ( pS->pAnimations.empty() )
+                    continue;
+                ++nWithAnims;
+                for ( NDb::CAnimationMap::const_iterator a = pS->pAnimations.begin(); a != pS->pAnimations.end(); ++a )
+                    nAnims += (int)a->second.anims.size();
+                if ( pS->pAnimations.find( NDb::CAnimation::POSE ) != pS->pAnimations.end() )
+                    ++nWithPose;
+            }
+        }
+        if ( nSkeletons == 0 )
+            pReport->Add( BOOT_FAIL, 0, "Skeletons table is empty" );
+        else if ( nWithAnims == 0 )
+            pReport->Add( BOOT_FAIL, 0, "BuildMapLinks: %d skeletons, none with animations - units would be created without a pose",
+                          nSkeletons );
+        else
+            pReport->Add( BOOT_OK, 0, "BuildMapLinks: %d/%d skeletons carry animations (%d in total, %d with a POSE set)",
+                          nWithAnims, nSkeletons, nAnims, nWithPose );
+    }
+
     /*  Cross-references and the retail importer's per-row Import(): the main
      *  menu is UI container 347 (iMainMenu.cpp), and its controls attach
      *  themselves to it in CUIControl::Import() through the UIContainerID
@@ -594,6 +741,8 @@ void CheckGameDatabase( CReport *pReport, const SDataMountResult &mount )
                               pMenu->nWidth, pMenu->nHeight, (int)pMenu->controls.size(), szFirst.c_str(), nFound );
         }
     }
+
+    CheckMenuChain( pReport );
 }
 
 /*  Textures.  Every texture the game ships is an MMP container holding DXT

@@ -5,8 +5,10 @@
 extern "C" {
 #endif
 void a5_input_key( int nAndroidKeyCode, int bDown );
-void a5_input_mouse_button( int nButton, int bDown );    /* 0 left, 1 right */
+void a5_input_mouse_button( int nButton, int bDown );    /* 0 left, 1 right, 2 middle */
 void a5_input_wheel( int nDelta );                       /* +120 per notch, like WM_MOUSEWHEEL */
+void a5_input_axis( int nAxis, int nDelta );             /* relative mouse delta: 0 = X, 1 = Y,
+                                                            in back-buffer pixels (~DirectInput counts) */
 #ifdef __cplusplus
 }
 #endif

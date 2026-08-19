@@ -20,13 +20,23 @@
         android:allowBackup="false"
         android:extractNativeLibs="true">
 
+        <!-- Lets simpleperf (adb shell) and other shell profilers attach to
+             release builds. -->
+        <profileable android:shell="true" />
+
+        <!-- configChanges must cover smallestScreenSize as well as screenSize:
+             on a folding device unfolding changes it, and any configuration
+             change not listed here destroys the NativeActivity and re-runs the
+             whole boot (mount, game.db, harness) from scratch. -->
         <activity
             android:name="android.app.NativeActivity"
             android:label="Silent Storm"
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="sensorLandscape"
-            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|density|uiMode">
+            android:resizeableActivity="true"
+            android:windowSoftInputMode="adjustNothing"
+            android:configChanges="orientation|keyboardHidden|keyboard|navigation|screenSize|smallestScreenSize|screenLayout|density|uiMode|fontScale|layoutDirection">
 
             <!-- Tells NativeActivity which library exports android_main. -->
             <meta-data android:name="android.app.lib_name" android:value="silentstorm" />

@@ -687,6 +687,17 @@ void CheckTextures( CReport *pReport, const SDataMountResult &mount )
                       nLoaded, nDecoded, nMatched );
 }
 
+extern "C" const char *a5_script_prelude( void );
+static std::string g_szHarnessLuaOut;
+static int HarnessLuaOut( lua_State *L )
+{
+    const char *psz = lua_tostring( L, 1 );
+    if ( psz ) g_szHarnessLuaOut += psz;
+    return 0;
+}
+static int HarnessLuaFalse( lua_State * ) { return 0; }
+static int HarnessLuaRandom( lua_State *L ) { lua_pushnumber( L, 3 ); return 1; }   /* the engine registers random() itself */
+
 void CheckScripting( CReport *pReport )
 {
     pReport->Add( BOOT_HEADING, 0, "Script: Lua 4.0 virtual machine" );
@@ -739,6 +750,54 @@ void CheckScripting( CReport *pReport )
     else
         pReport->Add( BOOT_FAIL, 0, "Lua string handling returned \"%s\"",
                       pszGreeting ? pszGreeting : "(null)" );
+
+    /*  The port's script prelude (platform/script_prelude.cpp): Lua 4 stand-ins
+     *  for the retail script API.  Load it into a fresh VM with the two engine
+     *  functions it uses (out, ObjectIsAction) faked, then call a few of the
+     *  stand-ins -- a syntax slip there would silently abort every mission
+     *  script on the device. */
+    if ( const char *pszTest = getenv( "A5_LUA_TEST" ) )   /* ad-hoc Lua 4 experiments */
+    {
+        Script t( true );
+        t.Register( "out", HarnessLuaOut );
+        g_szHarnessLuaOut.clear();
+        const int nT = t.DoString( pszTest );
+        t.ExecuteThreads();
+        pReport->Add( BOOT_DETAIL, 0, "  A5_LUA_TEST: %s; out: %s", ErrorToString( nT ), g_szHarnessLuaOut.c_str() );
+    }
+    {
+        Script prelude( true );
+        prelude.Register( "out", HarnessLuaOut );
+        prelude.Register( "ObjectIsAction", HarnessLuaFalse );
+        prelude.Register( "Sleep", HarnessLuaFalse );
+        prelude.Register( "random", HarnessLuaRandom );
+        g_szHarnessLuaOut.clear();
+        const char *pszPrelude = a5_script_prelude();
+        int n = prelude.DoBuffer( pszPrelude, strlen( pszPrelude ), "prelude" );
+        prelude.ExecuteThreads();
+        int n2 = LUA_NOERR;
+        if ( n == LUA_NOERR )
+        {
+            n2 = prelude.DoString(
+                "WaitForObject( 1 )\n"
+                "r = Random( 1, 6 )\n"
+                "PlaySound( 15691 ) PlaySound( 15691 )\n"
+                "SetGlobalGameVar( 'x', 7 ) gv = GetGlobalGameVar( 'x' )\n"
+                "n = TableGetSize( { 1, 2, 3 } )\n"
+                "hp = ObjectGetHP( 1 )\n" );
+            prelude.ExecuteThreads();
+        }
+        const int nR = prelude.GetGlobal( "r" ).GetInteger(), nGV = prelude.GetGlobal( "gv" ).GetInteger(),
+                  nN = prelude.GetGlobal( "n" ).GetInteger(), nHP = prelude.GetGlobal( "hp" ).GetInteger();
+        const bool bLoaded = g_szHarnessLuaOut.find( "prelude loaded" ) != std::string::npos;
+        const bool bStubOnce = g_szHarnessLuaOut.find( "stub called: PlaySound" ) != std::string::npos
+                            && g_szHarnessLuaOut.find( "stub called: PlaySound" ) == g_szHarnessLuaOut.rfind( "stub called: PlaySound" );
+        if ( n == LUA_NOERR && n2 == LUA_NOERR && bLoaded && bStubOnce && nR >= 1 && nR <= 6 && nGV == 7 && nN == 3 && nHP == 100 )
+            pReport->Add( BOOT_OK, 0, "script prelude: loads, stand-ins work (Random=%d, game var=%d, TableGetSize=%d, stub reported once)", nR, nGV, nN );
+        else
+            pReport->Add( BOOT_FAIL, 0, "script prelude: load %s, run %s, loaded-marker %d, stub-once %d, Random=%d gv=%d n=%d hp=%d; out: %s",
+                          ErrorToString( n ), ErrorToString( n2 ), (int)bLoaded, (int)bStubOnce, nR, nGV, nN, nHP, g_szHarnessLuaOut.c_str() );
+    }
 }
 
 #ifdef __ANDROID__

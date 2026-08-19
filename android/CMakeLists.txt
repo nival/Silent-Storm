@@ -273,6 +273,7 @@ if(NOT ANDROID)
         ${PLATFORM_DIR}/boot_harness.cpp
         ${PLATFORM_DIR}/data_mount.cpp
         ${PLATFORM_DIR}/dxt_decode.cpp
+        ${PLATFORM_DIR}/script_prelude.cpp
     )
     target_include_directories(silentstorm_hosttest PRIVATE
         ${COMPAT_DIR}/include
@@ -309,6 +310,7 @@ add_library(silentstorm SHARED
     ${PLATFORM_DIR}/data_mount.cpp
     ${PLATFORM_DIR}/dxt_decode.cpp
     ${PLATFORM_DIR}/text_font.cpp
+    ${PLATFORM_DIR}/script_prelude.cpp
 )
 target_include_directories(silentstorm PRIVATE
     ${COMPAT_DIR}/include
@@ -322,7 +324,6 @@ option(A5_AUDIO_NULL "Build the silent NFMSound back end instead of the mixer" O
 if(A5_BUILD_MAIN)
     target_sources(silentstorm PRIVATE
         ${PLATFORM_DIR}/game_entry.cpp
-        ${PLATFORM_DIR}/script_prelude.cpp
         ${PLATFORM_DIR}/input_android.cpp)
     if(A5_AUDIO_NULL)
         target_sources(silentstorm PRIVATE ${PLATFORM_DIR}/audio_null.cpp)

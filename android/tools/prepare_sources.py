@@ -3131,6 +3131,74 @@ static void CreateChecker( CSWTextureData *pTexture )
     ),
 ]
 
+# ---------------------------------------------------------------------------
+#  Rule set 17: the retail data ships its Geometries / AIGeometries as loose
+#  files, not as .res packages.  This source's release build only
+#  ever asked the package whether a file exists (the loose-file check is under
+#  _MAPEDIT), so CGameView::AddModelPart / CreateOccluder / GBuilding skipped
+#  every model part and no object was ever submitted to the renderer -- the
+#  main menu drew terrain, fog and particles over an empty platform.  The
+#  loaders themselves (CFileResource) already fall back to the loose file;
+#  make the existence check agree with them.
+# ---------------------------------------------------------------------------
+RULES += [
+    (
+        "Main/GResource.cpp",
+        "CResourceFileOpener::DoesExist( name, id ): a loose file counts.",
+        """bool CResourceFileOpener::DoesExist( const char *pszResName, int nID )
+{
+	NWin32Helper::CCriticalSectionLock l( packageWork );
+	if ( DoesPackageFileExist( pszResName, nID ) )
+		return true;
+#ifdef _MAPEDIT
+	HANDLE h = CreateFile( GetFileResourceName( pszResName, nID ).c_str(), GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0 );
+	CloseHandle( h );
+	return h != INVALID_HANDLE_VALUE;
+//	CFileStream file;
+//	return file.TryOpenRead( GetFileResourceName( pszResName, nID ).c_str() );
+#else
+	return false;
+#endif
+}""",
+        """bool CResourceFileOpener::DoesExist( const char *pszResName, int nID )
+{
+	NWin32Helper::CCriticalSectionLock l( packageWork );
+	if ( DoesPackageFileExist( pszResName, nID ) )
+		return true;
+	// [android] loose data files (retail layout): the same lookup CFileResource opens with
+	return a5_stat_exists( GetFileResourceName( pszResName, nID ).c_str() ) != 0;
+}""",
+    ),
+    (
+        "Main/GResource.cpp",
+        "CResourceFileOpener::DoesExist( name, part key ): a loose file counts.",
+        """bool CResourceFileOpener::DoesExist( const char *pszResName, const SPartKey &key )
+{
+	NWin32Helper::CCriticalSectionLock l( packageWork );
+	if ( DoesPackageFileExist( pszResName, key ) )
+		return true;
+#ifdef _MAPEDIT
+	string szName = GetFileResourceName( pszResName, GetID( key ) ).c_str();
+	HANDLE h = CreateFile( szName.c_str(), GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0 );
+	CloseHandle( h );
+	return h != INVALID_HANDLE_VALUE;
+	//CFileStream file;
+	//return file.TryOpenRead( GetFileResourceName( pszResName, GetID( key ) ).c_str() );
+#else
+	return false;
+#endif
+}""",
+        """bool CResourceFileOpener::DoesExist( const char *pszResName, const SPartKey &key )
+{
+	NWin32Helper::CCriticalSectionLock l( packageWork );
+	if ( DoesPackageFileExist( pszResName, key ) )
+		return true;
+	// [android] loose data files (retail layout): the same lookup CFileResource opens with
+	return a5_stat_exists( GetFileResourceName( pszResName, GetID( key ) ).c_str() ) != 0;
+}""",
+    ),
+]
+
 
 def apply_rules(text, rel_path, applied, unmatched):
     """Apply every rule whose file pattern matches.

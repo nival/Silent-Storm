@@ -20,19 +20,25 @@ not as a summary of what happened.
         FModSound     ████████████████░░░░  NFMSound on a software mixer + AAudio; music streams on device, 3D voices untested in a mission
 ```
 
-**On the Samsung Z Fold7 (2026-08-18, end of day):** the app boots, runs the
-boot harness (38 checks pass), loads `Complete/game.db` in ~0.5 s through the
-retail-format importer, initialises the renderer through the D3D9-on-GLES shim,
-and — with no `start.cfg` in the data root — goes straight to the **main menu**,
-which draws: the Silent Storm logo, "Silent Storm ver. 1.1", the "Work in
-progress" string from the Strings table, and the cursor, at ~120 fps into a
-1024×768 virtual back buffer letterboxed on the 2184×1968 panel. Known wrong on
-that screen: the cursor draws with a wrong atlas region (a unit silhouette) and
-leaves a trail because nothing clears behind it — the retail data's menu is a 3D
-"clientview" this source's `iMainMenu.cpp` does not find in UI container 347
-(see the harness warning), so no scene is drawn behind the UI. Next: that
-mismatch (either drive the menu from what the retail container has, or draw the
-menu scene regardless), the cursor texture, then touch → menu navigation.
+**On the Samsung Z Fold7 (2026-08-19):** the app boots, runs the boot harness
+(now 34 checks incl. the DB object chain), loads `Complete/game.db` in ~0.5 s,
+and goes to the **main menu**, which is now the real thing: the retail scene
+(burning wreck, smoke and ember particles, misty terrain, the animated 'Man'),
+logo, version, five buttons laid out on the template's text line, and a proper
+cursor. Taps click (one tap: the cursor and the button arrive in the same
+frame). CAMPAIGN → side selection (its own scene, NEXT/BACK) → hero screen
+(six characters, BACK / CUSTOM CHARACTER / NEXT), OPTIONS opens the book UI.
+Menu music plays through the AAudio mixer. Not yet: a mission — `template 4414`
+via `A5_START_CFG` crashes in `NAI::CPathNetwork::GetCP` from the unit
+animator (next item); the character-generation and face screens are untested;
+the retail scripts hit one `nil` function this snapshot's script API lacks.
+
+Three bugs found on the way that were invisible before and affect *everything*
+(details in Traps): DB cross-references imported from a file where the target
+class was only forward-declared were all null (Itanium `typeid(T*)` for an
+incomplete `T` never compares equal — every map was empty); loose-file
+resources did not "exist" for `CResourceFileOpener::DoesExist` (every model
+part skipped); particle effect records carry 32-bit offsets in pointer fields.
 
 Debug switches (in `<external files>/env.txt`, `NAME=VALUE` per line):
 `A5_D3D_TRACE=<frames>` logs every draw and a back-buffer histogram,
@@ -245,6 +251,26 @@ through it (staging rules). Any *new* `(CObjectBase*)something` cast is suspect.
 locker). With `typedef long LONG` on LP64 those structs double in size and the
 lock rectangle reads garbage — a write 2^50 bytes past the texture. The compat
 `windows.h` now types `LONG` as `int`, as Win32 does.
+
+**`typeid(T*)` for an incomplete `T` compares equal to nothing.** The Itanium
+ABI gives such a type_info internal linkage and a name starting with `*`
+("compare by address"), so a lookup keyed by `typeid(NDb::CX*)` taken in a file
+that only forward-declares `CX` never finds the entry registered where `CX` is
+complete. The class factory's pointer-typed table index (used by every
+`ImportField( name, CPtr<T>* )`) now compares mangled names with the `*`
+stripped (`BasicFactory.h` rule). Symptom before: whole maps without objects
+and no error anywhere.
+
+**`CResourceFileOpener::DoesExist` only knew packages.** Outside `_MAPEDIT` it
+returned false for anything not in a `.res`; the retail data ships
+`Geometries/`, `AIGeometries/` as loose files, so every model part was silently
+skipped. Rule set 17 falls back to a stat of the loose file.
+
+**File images with 32-bit pointers.** Particle effects (`GParticleFormat`) are
+loaded as a memory image whose records hold file offsets in pointer-typed
+fields, fixed up in place. On LP64 the record is a different size; the loader
+now decodes the file records into native structs. Grep for `pData + (int)`
+patterns before trusting any other blob loader.
 
 **`lua_dobuffer` does not run the chunk.** It parses and *starts* it on a Lua
 thread; `lua_executeThreads()` is commented out in `ldo.cpp` because the engine

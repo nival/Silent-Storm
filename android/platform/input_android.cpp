@@ -159,7 +159,20 @@ void PumpMessages( bool bFocus )
 bool GetMessage( SMessage *pMsg )
 {
     if ( g_messages.empty() )
+    {
+        /* Like the original: an empty queue yields a CT_TIME message stamped
+         * with the current tick.  Bind's GetEvent hands it up as the last
+         * (non-)event, and NMainLoop::StepApp takes currentTime from it -- so
+         * without this the game clock only advanced when a real input event
+         * arrived, and the scene sat still until the cursor moved. */
+        pMsg->nAction = -1;
+        pMsg->ePOVAxis = PA_UNKNOWN;
+        pMsg->cType = CT_TIME;
+        pMsg->nParam = 0;
+        pMsg->bState = false;
+        pMsg->tTime = GetTickCount();
         return false;
+    }
     *pMsg = g_messages.front();
     g_messages.pop_front();
     return true;

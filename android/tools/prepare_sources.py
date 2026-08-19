@@ -2889,6 +2889,8 @@ const SWindowInfo& CLoader::GetControl( const string &szID )
 {
 	char szLine[ 16 ];
 	sprintf( szLine, "line_%d", nLine );
+	if ( !HasControl( szLine ) && HasControl( "line" ) )
+		strcpy( szLine, "line" );   // some templates have a single line
 	SWindowInfo sLine = HasControl( szLine ) ? GetControl( szLine ) : SWindowInfo( pParent, SPoint( 0, 700 + 40 * ( nLine - 1 ) ), SPoint( 1024, 32 ), szLine, STYLE_VISIBLE | STYLE_ENABLED );
 	const int nWidth = sLine.sSize.x / Max( 1, nCount );
 	return SWindowInfo( sLine.pParent, SPoint( sLine.sPosition.x + nIndex * nWidth, sLine.sPosition.y ), SPoint( nWidth, sLine.sSize.y ), szID, STYLE_VISIBLE | STYLE_ENABLED );
@@ -3090,6 +3092,46 @@ static void CreateChecker( CSWTextureData *pTexture )
 	}
 	CBind *pBind = new CBind;
 	pBind->pBinds = shareBinds.Get( pModel->pGeometry->GetRecordID() );""",
+    ),
+    (
+        "Main/iHeroMenu.cpp",
+        "Retail hero-select template (UI container 354) has the six nationality "
+        "hit areas and one text line but no cancel/play/customchar buttons and "
+        "no 11133/11134 font strings; lay BACK / CUSTOM CHARACTER / NEXT out on "
+        "the line with the retail font states (11129/11130) and strings "
+        "(11135, 17340, 11137).",
+        """			pBack = new CHoverButton( sEvent.pLoader->GetControl( "cancel" ) );
+			pBack->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 11133 ) + GetDBString( 11135 ) );
+			pBack->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 11134 ) + GetDBString( 11135 ) );
+
+			pPlay = new CHoverButton( sEvent.pLoader->GetControl( "play" ) );""",
+        """			// [android] retail template: BACK / CUSTOM CHARACTER / NEXT along the line
+			if ( !sEvent.pLoader->HasControl( "play" ) )
+			{
+				const u16string wsHover = GetDBString( 11130 ) + u"<center>", wsNormal = GetDBString( 11129 ) + u"<center>";
+				pBack = new CHoverButton( sEvent.pLoader->MakeLineControl( "cancel", 1, 0, 3 ) );
+				pBack->AddTextState( CHoverButton::STATE_HOVER, wsHover + GetDBString( 11135 ) );
+				pBack->AddTextState( CHoverButton::STATE_NORMAL, wsNormal + GetDBString( 11135 ) );
+				pCustomChar = new CHoverButton( sEvent.pLoader->MakeLineControl( "customchar", 1, 1, 3 ) );
+				pCustomChar->AddTextState( CHoverButton::STATE_HOVER, wsHover + GetDBString( 17340 ) );
+				pCustomChar->AddTextState( CHoverButton::STATE_NORMAL, wsNormal + GetDBString( 17340 ) );
+				pPlay = new CHoverButton( sEvent.pLoader->MakeLineControl( "play", 1, 2, 3 ) );
+				pPlay->AddTextState( CHoverButton::STATE_HOVER, wsHover + GetDBString( 11137 ) );
+				pPlay->AddTextState( CHoverButton::STATE_NORMAL, wsNormal + GetDBString( 11137 ) );
+				pPlay->AddTextState( CHoverButton::STATE_DISABLED, GetDBString( 11129 ) + u"<color=0xFF5A4A30><center>" + GetDBString( 11137 ) );
+				pNat1Male = new CScriptButton( sEvent.pLoader->GetControl( "n1male" ), pInterface );
+				pNat1Female = new CScriptButton( sEvent.pLoader->GetControl( "n1female" ), pInterface );
+				pNat2Male = new CScriptButton( sEvent.pLoader->GetControl( "n2male" ), pInterface );
+				pNat2Female = new CScriptButton( sEvent.pLoader->GetControl( "n2female" ), pInterface );
+				pNat3Male = new CScriptButton( sEvent.pLoader->GetControl( "n3male" ), pInterface );
+				pNat3Female = new CScriptButton( sEvent.pLoader->GetControl( "n3female" ), pInterface );
+				break;
+			}
+			pBack = new CHoverButton( sEvent.pLoader->GetControl( "cancel" ) );
+			pBack->AddTextState( CHoverButton::STATE_HOVER, GetDBString( 11133 ) + GetDBString( 11135 ) );
+			pBack->AddTextState( CHoverButton::STATE_NORMAL, GetDBString( 11134 ) + GetDBString( 11135 ) );
+
+			pPlay = new CHoverButton( sEvent.pLoader->GetControl( "play" ) );""",
     ),
     (
         "Main/GRenderExecute.cpp",

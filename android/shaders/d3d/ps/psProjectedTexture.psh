@@ -1,0 +1,10 @@
+; psProjectedTexture (id 49) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+mov r0, t0
+
+
+; ---- ps.1.4 variant ----
+ps.1.4
+texld r0, t0_dw.xyw
+

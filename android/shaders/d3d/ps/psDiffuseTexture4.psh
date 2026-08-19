@@ -1,0 +1,6 @@
+; psDiffuseTexture4 (id 31) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+mul_x4_sat r0.rgb, t0, v0
++add r0.a, v0.a, 1-v0.a
+

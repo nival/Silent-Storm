@@ -1,0 +1,4 @@
+; psDiffuseTFactor4 (id 7) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+mul_x4 r0, v0, c0
+

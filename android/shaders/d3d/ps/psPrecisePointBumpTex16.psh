@@ -1,0 +1,27 @@
+; psPrecisePointBumpTex16 (id 55) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+tex t2
+tex t3
+dp3_sat r0, t1_bx2, t2_bx2
+mul r0, r0, t0
+mul r0, r0, v0
+mul_x4 r0.rgb, r0, t3
+mov_x4 r0.rgb, r0
++mov r0.a, t3.a
+
+
+; ---- ps.1.4 variant ----
+ps.1.4
+texld r0, t0_dw.xyw
+texld r1, t1
+texld r2, t2
+texld r3, t3
+dp3_sat r4, r1_bx2, r2_bx2
+mul r4, r4, r0
+mul_x4 r4, r4, r3
+mul r0.rgb, r4, v0
+mov_x4 r0.rgb, r0
++mov r0.a, r3.a
+

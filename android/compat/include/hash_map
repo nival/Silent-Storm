@@ -1,0 +1,50 @@
+/*  <hash_map> -- STLport's pre-standard hash containers, expressed as the C++11
+ *  unordered containers.  Template parameter order is identical
+ *  (Key, T, HashFcn, EqualKey, Alloc), so engine code compiles unchanged.
+ *
+ *  One behavioural difference is worth knowing about: iteration order differs
+ *  from STLport's.  That is invisible when *reading* game data, but a rebuilt
+ *  .res package will list its entries in a different order than the 2003 tools
+ *  produced (the format stores a lookup table, so this is cosmetic).
+ */
+#ifndef A5_COMPAT_HASH_MAP
+#define A5_COMPAT_HASH_MAP
+
+#include <unordered_map>
+#include <functional>
+#include <memory>
+#include <utility>
+
+namespace std {
+
+template <class Key, class T,
+          class HashFcn  = std::hash<Key>,
+          class EqualKey = std::equal_to<Key>,
+          class Alloc    = std::allocator<std::pair<const Key, T> > >
+class hash_map : public std::unordered_map<Key, T, HashFcn, EqualKey, Alloc>
+{
+    typedef std::unordered_map<Key, T, HashFcn, EqualKey, Alloc> base_type;
+public:
+    hash_map() {}
+    explicit hash_map( size_t n ) : base_type( n ) {}
+    hash_map( size_t n, const HashFcn &h ) : base_type( n, h ) {}
+    hash_map( size_t n, const HashFcn &h, const EqualKey &e ) : base_type( n, h, e ) {}
+    template <class InputIt>
+    hash_map( InputIt first, InputIt last ) : base_type( first, last ) {}
+};
+
+template <class Key, class T,
+          class HashFcn  = std::hash<Key>,
+          class EqualKey = std::equal_to<Key>,
+          class Alloc    = std::allocator<std::pair<const Key, T> > >
+class hash_multimap : public std::unordered_multimap<Key, T, HashFcn, EqualKey, Alloc>
+{
+    typedef std::unordered_multimap<Key, T, HashFcn, EqualKey, Alloc> base_type;
+public:
+    hash_multimap() {}
+    explicit hash_multimap( size_t n ) : base_type( n ) {}
+};
+
+}  // namespace std
+
+#endif

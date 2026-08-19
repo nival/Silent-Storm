@@ -1,0 +1,6 @@
+; psTextureColor (id 4) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+mov r0.rgb, t0
++add r0.a, t0.a, 1-t0.a
+

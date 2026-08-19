@@ -1,0 +1,8 @@
+//  Root Gradle build for the Silent Storm Android port.
+//
+//  This is the Android Studio entry point; it is optional.  scripts/build_apk.sh
+//  produces the same APK using only the SDK build-tools, and both paths compile
+//  the same CMakeLists.txt with the same NDK.
+plugins {
+    id("com.android.application") version "8.5.2" apply false
+}

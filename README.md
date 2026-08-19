@@ -26,6 +26,7 @@ In 2026, the game's source code was released under a [special license](LICENSE.m
 - `bin/` — compiled executables
 - `cfg/` — configuration files
 - `Versions/Current` — developer version
+- `android/` — Android (NDK) port of the engine — see [android/README.md](android/README.md)
 
 ---
 
@@ -39,6 +40,31 @@ In 2026, the game's source code was released under a [special license](LICENSE.m
 By default, the game runs in windowed mode at 800x600 resolution. For windowed mode, the color depth in Display Properties/Settings/Colors must be set to 32-bit (true color). To run in fullscreen mode, use the `-fullscreen` parameter. To change the resolution, use the `-640`, `-1024`, or `-1280` parameters for 640x480, 1024x768, or 1280x1024, respectively.
 
 ⚠️ There are issues running the game on modern operating systems. If you find a solution, please let us know through GitHub Issues.
+
+---
+
+# Android
+
+The `android/` directory builds the engine for Android with the NDK. The engine
+core — file I/O, the `.res` package reader, the chunk serialiser and the Lua 4
+virtual machine — runs on device against real game data; the Direct3D renderer,
+audio and the game layer are not ported yet.
+
+```bash
+cd android
+./scripts/build_apk.sh     # build (SDK + NDK only, no Gradle required)
+./scripts/push_data.sh     # copy game data to the device
+./scripts/run.sh           # install and launch
+```
+
+The original sources under `Soft/` are not modified: a staging step copies the
+modules being built and applies a documented set of rewrites (include paths, x86
+assembly, MSVC-only C++, 64-bit fixes). Run
+`python3 android/tools/prepare_sources.py --report` to list every change.
+
+See [android/README.md](android/README.md) for the current state and
+[android/docs/PORTING.md](android/docs/PORTING.md) for what porting the rest
+involves.
 
 ---
 

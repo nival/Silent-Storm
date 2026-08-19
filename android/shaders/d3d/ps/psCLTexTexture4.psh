@@ -1,0 +1,8 @@
+; psCLTexTexture4 (id 35) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+mad r0, c0, t0.a, t0
+mul_x4_sat r0.rgb, r0, t1
++add r0.a, r0.a, 1-r0.a
+

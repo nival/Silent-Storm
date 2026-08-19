@@ -1,0 +1,13 @@
+; psAlienEffect (id 75) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+lrp r0, v0.a, t1, t0
+
+
+; ---- ps.1.4 variant ----
+ps.1.4
+texld r0, t0_dw.xyw
+texld r1, t1.xyz
+lrp r0, v0.a, r1, r0
+

@@ -1,0 +1,7 @@
+; psAlphaSqrtModulate (id 6) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+mov r0.rgb, t0
++mad r0.a, t0, 1-t0, t0
+mul r0.a, r0.a, v0.a
+

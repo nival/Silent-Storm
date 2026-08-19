@@ -1,0 +1,7 @@
+; psTransparentDifTex4 (id 28) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+mul_x4 r0.rgb, t0, v0
++mul r0.a, t0.a, v0.a
+

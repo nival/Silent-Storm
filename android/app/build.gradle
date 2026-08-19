@@ -1,0 +1,58 @@
+//  The app module.  There is no Java/Kotlin source: the whole application is
+//  libsilentstorm.so behind android.app.NativeActivity (see AndroidManifest.xml).
+plugins {
+    id("com.android.application")
+}
+
+android {
+    namespace = "org.silentstorm.port"
+    compileSdk = 35
+    ndkVersion = "27.0.12077973"
+
+    defaultConfig {
+        applicationId = "org.silentstorm.port"
+        minSdk = 24
+        targetSdk = 35
+        versionCode = 1
+        versionName = "0.1-core"
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
+        externalNativeBuild {
+            cmake {
+                arguments += listOf("-DANDROID_PLATFORM=android-24")
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            //  ../CMakeLists.txt is shared with the shell-script build.
+            path = file("../CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+    sourceSets {
+        getByName("main") {
+            manifest.srcFile("../app/AndroidManifest.xml")
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+        }
+    }
+}
+
+//  Stage the engine sources before every native build -- the same step
+//  scripts/build.sh performs.
+val prepareSources by tasks.registering(Exec::class) {
+    workingDir = file("..")
+    commandLine("python3", "tools/prepare_sources.py")
+}
+tasks.matching { it.name.startsWith("externalNativeBuild") }.configureEach {
+    dependsOn(prepareSources)
+}

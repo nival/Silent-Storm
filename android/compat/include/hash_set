@@ -1,0 +1,37 @@
+/* <hash_set> -- see the note in <hash_map>. */
+#ifndef A5_COMPAT_HASH_SET
+#define A5_COMPAT_HASH_SET
+
+#include <unordered_set>
+#include <functional>
+#include <memory>
+
+namespace std {
+
+template <class Value,
+          class HashFcn  = std::hash<Value>,
+          class EqualKey = std::equal_to<Value>,
+          class Alloc    = std::allocator<Value> >
+class hash_set : public std::unordered_set<Value, HashFcn, EqualKey, Alloc>
+{
+    typedef std::unordered_set<Value, HashFcn, EqualKey, Alloc> base_type;
+public:
+    hash_set() {}
+    explicit hash_set( size_t n ) : base_type( n ) {}
+};
+
+template <class Value,
+          class HashFcn  = std::hash<Value>,
+          class EqualKey = std::equal_to<Value>,
+          class Alloc    = std::allocator<Value> >
+class hash_multiset : public std::unordered_multiset<Value, HashFcn, EqualKey, Alloc>
+{
+    typedef std::unordered_multiset<Value, HashFcn, EqualKey, Alloc> base_type;
+public:
+    hash_multiset() {}
+    explicit hash_multiset( size_t n ) : base_type( n ) {}
+};
+
+}  // namespace std
+
+#endif

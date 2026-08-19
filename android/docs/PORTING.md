@@ -1,0 +1,478 @@
+# Porting Silent Storm to Android
+
+This is the working map for the port: what is done, what is left, in what order,
+and the traps found along the way. It is written for someone picking the work up,
+not as a summary of what happened.
+
+## Where things stand
+
+```
+        compat layer  ████████████████████  the Win32 surface the ported modules use
+        Misc          ████████████████████  ported, running on device
+        FileIO        ████████████████████  ported, reading real .res packages
+        Script        ████████████████████  Lua 4.0 running the game's own .l sources
+        MiscDll       ████████████████░░░░  builds; console vars untested
+        DBFormat      ████████████████████  ported; loads the retail game.db (130/130 tables, 222k records)
+        Image         ████████████████████  ported; DXT1/3/5 software decoder in platform/
+        Main          ████████████████████  269/269 files compile and link; the game loop runs on device, a mission loads
+        d3d9gles      ██████████████████░░  D3D9 device on GLES 3.0; 155 shaders translated; first frames drawn
+        Input         ██████████████████░░  NInput on Android keys/touch; gestures: pinch = zoom, drag = pan, twist / 3 fingers = rotate, tap = right click
+        FModSound     ████████████████░░░░  NFMSound on a software mixer + AAudio; music streams on device, 3D voices not yet exercised
+```
+
+**On the Samsung Z Fold7 (2026-08-19):** the app boots, runs the boot harness
+(now 45 checks incl. the DB object chain and the menu chain), loads `Complete/game.db` in ~0.5 s,
+and goes to the **main menu**, which is now the real thing: the retail scene
+(burning wreck, smoke and ember particles, misty terrain, the animated 'Man'),
+logo, version, five buttons laid out on the template's text line, and a proper
+cursor. Taps click (one tap: the cursor and the button arrive in the same
+frame). CAMPAIGN → side selection (its own scene, NEXT/BACK) → hero screen
+(six characters, BACK / CUSTOM CHARACTER / NEXT), OPTIONS opens the book UI.
+Menu music plays through the AAudio mixer.
+
+**The whole menu chain walks by touch**, down to character generation and the
+face screen. Every screen on it needed work, and all of it was the same
+underlying difference: **the retail UI containers are a revision ahead of this
+source snapshot**, and the source does nothing about the mismatch — a control
+it asks for and the data does not have comes back from `CLoader::GetControl`
+as a zero-sized, style-0 stand-in with only a console line, so the button is
+invisible, unclickable and silent, while a control the data has and the source
+does not know about is drawn anyway. What that cost, screen by screen:
+
+* **side selection** (container 353) has `axis`/`allies` hit areas but no
+  next/cancel, and the retail screen showed which side you had picked through
+  its template's script (`OnScriptNotify`), which this snapshot does not have.
+  Both sides therefore looked identical whatever you tapped, and NEXT was
+  enabled from the start but silently did nothing until a side was chosen.
+  `CSideMenuUI` now has a `Draw` that holds the chosen side's label in its
+  hover state and greys NEXT out until there is a choice.
+* **hero selection** (container 354) is six bare hit areas over the 3D
+  characters, named by the same missing script. Nothing distinguished a picked
+  character from an unpicked one; the only sign a tap had registered was NEXT
+  un-greying. The screen now carries a label under the row with the chosen
+  character's name.
+* **character generation** (container 345) had no way in or out: the container
+  has every control the screen wants *except* `play` and `cancel`, so both were
+  invisible stand-ins and the screen was a dead end. It also ships four
+  `*_hilight` overlays from a later revision that this source never turns off;
+  `stats_hilight` is an opaque white rectangle over (505,178)-(978,618) — the
+  entire right-hand page — so every attribute and skill readout was hidden
+  behind it. BACK/NEXT are laid out on the template's text line and the
+  overlays are hidden at template load.
+* **face generation** (container 361) *crashed the game on its first frame*,
+  which is why nothing past the hero screen could be reached. It has three
+  `voice1`/`voice2`/`voice3` buttons where this source expects one `voice`
+  scroll; the `CScroll` built on the stand-in asked `GetUIWindow` for its thumb
+  and got a stand-in `CSlider`, and a stand-in never received the
+  `EVENT_TEMPLATELOADCOMPLETE` that sets *its* own `pSlider`, so
+  `CSlider::Update` dereferenced null every frame. Fixed at the general level —
+  `GetUIWindow` now sends the stand-in that event (rule set 19) — and the voice
+  scroll is no longer built at all when the template has no `voice` control.
+
+Two platform bugs on the same path: a tap on the black border around the
+letterboxed 1024x768 image pressed the mouse button at the cursor's *previous*
+position, so tapping the ~40% of a 2520x1080 screen that is border clicked
+whatever the cursor happened to be over; and `configChanges` did not list
+`smallestScreenSize`, so folding or unfolding the device destroyed the
+NativeActivity and re-ran the whole boot — mount, `game.db`, harness — from
+scratch.
+
+Known gaps on this path, both cosmetic: the voice selector is not merely
+unwired but unimplemented in this snapshot — `CFaceGenUI::nVoice` is set and
+read by nothing, and `NRPG::CreateMerc( pPers, pHead, bHero )` takes no voice
+at all, so the unit's voice comes from its `CRPGPers` record. (The branch that
+was meant to read it tested `szID == "face"` twice, so it has been dead since
+2003; the id is corrected, the value still goes nowhere.) And a screen that
+takes more than five seconds to load will raise an ANR if it is tapped while
+loading: the input queue is attached to the game thread's looper by
+`native_app_glue`, so nothing drains it while a load is in progress.
+
+**A mission runs.** `template 4414` via `A5_START_CFG` now loads and plays: the
+tactical HUD (Menu / Leave / Objectives / Journal, the party bar, the selected
+soldier's weapon and ammo, START COMBAT), terrain and vegetation, and the
+soldiers standing in their idle pose with the selection ring under them.
+Steady frames, ~2,200 draws per five seconds. Two bugs stood between the menu
+and this, and the second of them was affecting far more than missions:
+
+* `NAI::CPathNetwork::GetDeployPlace` spreads a party ±1 tile around its deploy
+  spot with no bounds check. This map's deploy spot resolves to grid row 0, so
+  `y - 1` wrapped in `SPathPlace`'s 8-bit field to 255; `SPathPlace::IsValid()`
+  only checks the *layer*, so the off-grid place travelled all the way to
+  `CPathNetwork::GetCP`, which indexed `squareLevel[255/16][..]` on a 4×4 array
+  and crashed. The same file's `GetLockAreaInternal` has exactly the bounds
+  check `GetDeployPlace` is missing, so this is an original-engine oversight,
+  not a 64-bit artefact. Clamped (rule set 18).
+* **`NDb::BuildMapLinks()` was never called.** It walks the Animations table
+  after the import and hangs each animation on its skeleton (and wires debris
+  materials, item models to uniforms, and more). Every skeleton had an empty
+  animation map, so every unit was created with no pose at all and the first
+  `CUnitAnimator::StandStill` dereferenced the null it got back. See Traps.
+
+A third bug showed up once the mission was reachable and is fixed too: the
+party deployed on the map's edge and the camera opened over the void beyond it
+— a black screen with the HUD on top, which looks exactly like a hang. See
+"A deploy spot was resolved by scan order" in Traps.
+
+Still open here: the retail scripts hit one `nil` function this snapshot's
+script API lacks, and the tactical HUD draws a blue checkerboard where
+`Textures/615` should be — that file is absent from the retail data.
+
+Three bugs found on the way that were invisible before and affect *everything*
+(details in Traps): DB cross-references imported from a file where the target
+class was only forward-declared were all null (Itanium `typeid(T*)` for an
+incomplete `T` never compares equal — every map was empty); loose-file
+resources did not "exist" for `CResourceFileOpener::DoesExist` (every model
+part skipped); particle effect records carry 32-bit offsets in pointer fields.
+
+Debug switches (in `<external files>/env.txt`, `NAME=VALUE` per line):
+`A5_D3D_TRACE=<frames>` logs every draw and a back-buffer histogram,
+`A5_D3D_FORCE=nocull,nodepth,noblend` overrides state, `A5_DB_DUMP=1` /
+`A5_DB_DUMP_ROWS=<table>` dump the database, `A5_UI_DUMP=1` lists the menu
+UI containers control by control, `A5_AUDIO_TRACE=1` logs every
+sound/stream start (the 5-s `audio:` stats line — voices, streams, output
+peak, underruns — is always on), `A5_START_CFG=<cfg>` runs that cfg instead of
+`start.cfg` (e.g. a file with `template 4414` to drop into a mission). The
+engine console is echoed to logcat as `console: ...`.
+
+## The order the remaining work should happen in
+
+### 1. `wstring` — done
+
+The engine serialises `std::wstring` straight into `game.db` and asset files,
+and it is UTF-16 because `wchar_t` is 2 bytes on Win32. Android's is 4. The
+staged sources now use `char16_t`/`std::u16string` (a mechanical pass in
+`prepare_sources.py`), `WCHAR` is `char16_t` in the compat `windows.h`, and
+`compat/src/wide_char.cpp` provides the char16_t CRT forms plus real
+windows-1251/1252 conversion tables for `MultiByteToWideChar` and friends.
+
+### 1b. `game.db` — done, by importing the retail format
+
+No `game.db` in this repository is in the layout this source's `ADOFake` stub
+expects (typed records serialised through their own `operator&`). Every shipped
+file (`Data/`, `Complete/`, `Versions/Current/*/`) stores each table as an object
+of a class registered as `0xA1843130` — a **generic column store**, i.e. a dump of
+the ADO table the content team edited:
+
+```
+chunk 2   per record: vector<int>       int and bool columns, in column order
+chunk 3   per record: vector<float>     float columns
+chunk 4   per record: vector<wstring>   string columns (UTF-16)
+chunk 5   column descriptors { 2: name (windows-1251), 3: type 0 int/1 bool/2 float/3 string }
+chunk 6/7/8   names of the int / float / string columns, in value order
+```
+
+The table ids in the file's top-level `hash_map<int, CObj<CObjectBase>>` are the
+same ids `DBFormat` registers (`45` = Strings, `0xE0000001` = RPGWeaponTypes…),
+which is what makes the import possible: the shipping engine evidently ran the
+ADO-style import at load time against that dump, and so does the port.
+`platform/db_retail.cpp` (built instead of `ADOFake/BasicDBfake.cpp`) is the
+`ADOImport/BasicDB.cpp` driver — PreCreate every table's records by their `ID`
+column, then call each record's own `Import()` with the table cursor on its
+row — with the chunk format as the "connection". The record classes' `Import()`
+methods, which is where the schema lives, run unchanged.
+
+Result on `Complete/game.db` (34 MB): 130/130 tables matched, 222,619 records,
+14 columns the source asks for that the file no longer has (`RPGWeapons.
+AmmoTypeID`, `MaleCustomHead1..6`… — the fields stay default), 25 tables in the
+file this source has no class for (later features: medals, chests, hair/glasses
+customisation). `Data/game.db` (3 MB) is a development cut of the same format
+with too little data to be consistent (one weapon type) — use `Complete/`'s.
+`A5_DB_DUMP=1` in the environment logs every table's columns.
+
+Two details that matter: column names in the file are windows-1251 bytes and the
+staged sources are UTF-8, and one source column name really does contain a
+Cyrillic letter (`DamageMоd`); the loader converts. Relation tables
+(`RPGPers2Scripts`) are not in the file, so `ImportRelation` returns empty lists.
+
+### 2. `Image` — done
+
+BMP/TGA/PNG/MMP loading builds and runs; libpng 1.0.9 is built from the tree
+against the NDK's zlib with the x86 assembler back ends off. `ImagePack.cpp` (the
+DXT *encoder* on a proprietary `s3tc.h`) is a tools-side dependency of TexConv
+and is not part of the runtime. `platform/dxt_decode.cpp` decodes DXT1/3/5 in
+software for GPUs without `GL_EXT_texture_compression_s3tc` and for the harness,
+which checks decoded mean colour against the header's `dwAverageColor`.
+
+### 3. `Main` — done: 269/269 files build, link and run
+
+Getting there was almost entirely a matter of MSVC 7 leniencies handled once, as
+mechanical passes or rules in `prepare_sources.py` — see "Traps" below for the
+list. Every remaining piece of x86 inline assembly is gone: the MMX skinning in
+`GCombiner.cpp` (verified against float within 0.01), the particle colour
+modulate (bit-exact against an emulation of the instruction sequence), the
+bilinear resample and the 2D blend in the software paths, the MMX AABB
+accumulator, and the MMX `ReallyFastShiftingTransfer` in the vertex-buffer path.
+
+The Direct3D 9 backend (`Gfx.cpp`, `GfxBuffers.cpp`, `GfxRender.cpp`,
+`GfxEffects.cpp`, `GfxShaders.cpp` — ~6,500 lines) is **kept as written** and
+runs on a Direct3D 9 implementation over GLES 3.0:
+`compat/d3d9gles/d3d9.h` + `d3d9gles.cpp` (~2,000 lines). The full contract that
+implementation honours — the ~40 device methods, the three vertex formats, the
+constant-register map, the render-target model, the coordinate-system
+differences — is [RENDERER.md](RENDERER.md). In short:
+
+* framebuffer memory is always in D3D layout (row 0 at the top); every draw goes
+  into an FBO with a y-flip in the vertex shader (`posFixup`), which mirrors the
+  winding — D3D measures it in projected space, y up, like GL — so `D3DCULL_CW`
+  becomes `glFrontFace(GL_CW)` + cull back (the *un*-mirrored mapping would be
+  `GL_CCW`; getting this backwards culled every 2D quad); `Present` is a flipped
+  `glBlitFramebuffer` into the EGL surface, letterboxed to the requested mode
+  (1024×768 by default)
+* the 155 D3D shader-assembly programs the engine embeds (`GfxShadersDescr.h`)
+  are recovered by `tools/extract_shaders.py` and translated to GLSL ES 3.00 by
+  `tools/d3dasm2glsl.py`; the runtime finds a program by the FNV-1a hash of the
+  assembly text (`shaders/glsl_table.cpp`) and links per (vs, ps, cube-sampler
+  mask). All 155 compile and draw on the Adreno 830 (`platform/d3d_selftest.cpp`)
+* textures keep a CPU shadow so `LockRect` works; DXT goes to the GPU when
+  `GL_EXT_texture_compression_s3tc` is there and through `platform/dxt_decode.cpp`
+  otherwise; vertex/index buffers keep a shadow with dirty ranges (`MarkDirty`,
+  hinted from the engine's own lock calls by a staging rule) so the 32-bit
+  index streaming path costs one upload per lock
+
+`platform/game_entry.cpp` is `Game/Main.cpp`'s WinMain in three calls
+(`a5_game_init` / `a5_game_step` / `a5_game_shutdown`), driven by
+`android_main.cpp` once the boot harness passes and data is mounted.
+
+### 4. Input, audio, video
+
+* **Input**: `Input/Input.h` is the seam — a clean, DirectInput-free interface
+  (`InitInput`, `PumpMessages`, `GetMessage(SMessage*)`, `GetControlID`).
+  `platform/input_android.cpp` implements it: a control table with the original
+  control names mapped to Android key codes, mouse buttons and wheel; touches
+  become an absolute pointer position (`a5_set_pointer_position`) that
+  `Cursor.cpp` reads in preference to integrated deltas (staging rule).
+  `Bind.cpp` (action mapping) is portable and sits on top. Camera gestures ride
+  the retail binds (`cfg/input.cfg`): a two-finger **pinch** is the mouse wheel
+  (`-camera_zoom 'MOUSE_AXIS_Z'`), a two-finger **drag** holds `MOUSE_BUTTON2`
+  and feeds `MOUSE_AXIS_X/Y` deltas — the PC middle-button pan
+  (`+camera_forward` / `-camera_strafe`) — and a two-finger **tap** is still the
+  right click. Rotation rides the right-button binds: a two-finger **twist**
+  (the finger line turning >10° before the drag slop trips) holds
+  `MOUSE_BUTTON1` and feeds `MOUSE_AXIS_X` (`-camera_rotate`), and a
+  **three-finger drag** is the whole PC right-button drag — horizontal rotates,
+  vertical tilts (`-camera_pitch`). A gesture is one mode for its whole life
+  (pan/zoom, twist, or orbit) because pan holds button 2 and rotation holds
+  button 1, and with both held one axis message would drive both camera binds.
+  So a starting pinch never lands as a phantom left click, a single finger's
+  press is held back ~90 ms (or until it moves/lifts) before it reaches the
+  engine.
+* **Audio** — done for what can be exercised so far. `FModSound/FMsound.h` is
+  the seam (Main only ever calls `NFMSound::*`); `platform/audio_android.cpp`
+  implements it on a software mixer of its own: 64 sample voices + streams,
+  float mixing at the device rate with linear resampling, on a mixer thread
+  that writes to **AAudio** with blocking writes (AAudio is `dlopen`ed so
+  minSdk stays 24; without it the mixer runs against a clock, silently).
+  Semantics follow the FMOD wrapper: dropping the last `CObj<>` to a
+  `CSound2D/3D` stops the voice; 3D positions go through the listener's
+  projection matrix (`|(2x, 2y, w)|` in clip space) with FMOD's logarithmic
+  rolloff between the sample's min/max distance; volumes are 0..255, SFX
+  master scales voices, music volume is absolute per stream; a stream's
+  `IsPlaying()` goes false when it ends, which is what makes `CSoundScene`
+  restart the ambient after 120 s. One deliberate divergence: `PlayStream()`
+  hands back the stream that is already playing the same file instead of
+  layering a second copy — every pushed menu interface creates its own sound
+  scene and starts the ambient on its first `Draw()`.
+  Decoders (`platform/audio_decode.cpp`, no engine dependency): the retail
+  `Sounds/<id>` files are Ogg Vorbis (6910, encoded with libVorbis 1.0
+  beta3/RC1 — **floor type 0**, which stb_vorbis/minivorbis cannot decode, so
+  the Xiph reference libogg+libvorbis are vendored under `thirdparty/`) and
+  RIFF WAVE (1300 Microsoft ADPCM, 80 IMA ADPCM, 204 PCM); music
+  `Res\Music\*.wav` is Ogg Vorbis inside. `build/host/silentstorm_audiotest`
+  decodes every file and compares the WAVs sample-for-sample with ffmpeg:
+  1584/1584 bit-exact, 6940/6940 Ogg decode to their declared length. Music
+  is needed on the device: `Versions/Current/res/Music/*.wav` → `<data
+  root>/res/Music/` (`push_data.sh --full` covers `Sounds/`, not this).
+  On the Z Fold7 the main-menu track streams at 48 kHz with 0 underruns.
+  Not yet exercised: 3D voices and sample fades. A mission now loads, so
+  they are reachable — that is the next thing to listen to.
+  Open: OpenSL ES for API 24/25 (silent there today), the app's audio focus.
+* **Video**: Bink is licensed and absent. Cutscenes should be skipped or the
+  container replaced; nothing else depends on it.
+* **LifeStudio:HEAD** (facial animation for dialogue heads, proprietary) is
+  stubbed under `compat/include/thirdparty-stubs/`: heads render in their neutral
+  pose. Reviving it means licensing the SDK or writing a macro-muscle deformer.
+
+### 5. The game layer
+
+Everything else in `Main` — scene graph, animation, pathfinding, AI, UI, RPG and
+turn logic — is platform-independent C++ and should mostly compile once the
+compat layer covers it. Budget the effort for the renderer, not for this.
+
+## Traps found so far
+
+Things that cost time here, so they do not cost it again:
+
+**32-bit pointer assumptions.** The stream layer stores a logical EOF as a
+pointer past the end of its buffer and adjusts it with unsigned arithmetic that
+relied on 32-bit wraparound. It crashes instantly on arm64 rather than
+misbehaving subtly — but the same pattern may exist elsewhere in code that has
+not been exercised yet. Grep for pointer arithmetic mixing `unsigned int` offsets.
+
+**`Float2Int` rounds.** 238 call sites. The x87 original uses the current FPU
+rounding mode (nearest-even); `(int)` truncates. Use `lrintf`.
+
+**`hash_map` iteration order.** The port maps STLport's `hash_map` onto
+`std::unordered_map`. Reading is unaffected, but anything that *writes* a
+container to disk will produce a different entry order than the 2003 tools did.
+That is fine for `.res` packages (they carry a lookup table) — check before
+relying on it for save games.
+
+**Object references in the chunk serialiser are 32-bit save-time addresses.**
+`CStructureSaver` writes 4 bytes of an object's *pointer* as its reference ID and
+maps them back on load. On 64-bit that dropped half the address on write and
+left half a `void*` unwritten on read, so every reference resolved to nothing.
+The port keys references as `uint32` throughout and, on write, numbers stored
+objects densely instead of using addresses. On-disk format is unchanged.
+
+**MSVC 7 leniencies that recur across the tree** — all handled by mechanical
+passes in `prepare_sources.py`, so they will not need attention again in `Main`:
+forward-declared enums (`enum E;` → `enum E : int;` plus the definition),
+`typename` on dependent iterator types, `if ( CDynamicCast<T> p( x ) )`
+declarations, `typeid` on incomplete types in the class factory, and the
+`CPtr<T> == T*` overload ambiguity.
+
+**RTTI: MSVC lets you `dynamic_cast` from the wrong subobject; Itanium does
+not.** The engine casts opaque pointers to `(CObjectBase*)` — forward-declared
+`NGfx::CTexture*`, `void*` command contexts — and then `dynamic_cast`s. That is a
+reinterpret_cast; MSVC's RTTI still finds the complete object from whatever vptr
+is at that address, libc++abi looks for a `CObjectBase` subobject there, finds
+none (it is a *virtual* base, at the end of the object) and returns null.
+Symptom: every `CDynamicCast<I2DBuffer>( pTexture )` null, first texture load
+crashes. `compat/src/rtti_compat.cpp` (`a5_cast_opaque<T>()`) does what MSVC did
+— vptr → complete object and its `type_info` → walk the ABI's base-class
+descriptors to the destination — and `CDynamicCast` and the `pContext` sites go
+through it (staging rules). Any *new* `(CObjectBase*)something` cast is suspect.
+
+**`LONG` is 32 bits.** The engine casts `CTRect<int>*` to `RECT*` and
+`CTPoint<int>*` to `POINT*` when calling D3D (`GfxBuffers.cpp`'s texture
+locker). With `typedef long LONG` on LP64 those structs double in size and the
+lock rectangle reads garbage — a write 2^50 bytes past the texture. The compat
+`windows.h` now types `LONG` as `int`, as Win32 does.
+
+**`typeid(T*)` for an incomplete `T` compares equal to nothing.** The Itanium
+ABI gives such a type_info internal linkage and a name starting with `*`
+("compare by address"), so a lookup keyed by `typeid(NDb::CX*)` taken in a file
+that only forward-declares `CX` never finds the entry registered where `CX` is
+complete. The class factory's pointer-typed table index (used by every
+`ImportField( name, CPtr<T>* )`) now compares mangled names with the `*`
+stripped (`BasicFactory.h` rule). Symptom before: whole maps without objects
+and no error anywhere.
+
+**`CResourceFileOpener::DoesExist` only knew packages.** Outside `_MAPEDIT` it
+returned false for anything not in a `.res`; the retail data ships
+`Geometries/`, `AIGeometries/` as loose files, so every model part was silently
+skipped. Rule set 17 falls back to a stat of the loose file.
+
+**File images with 32-bit pointers.** Particle effects (`GParticleFormat`) are
+loaded as a memory image whose records hold file offsets in pointer-typed
+fields, fixed up in place. On LP64 the record is a different size; the loader
+now decodes the file records into native structs. Grep for `pData + (int)`
+patterns before trusting any other blob loader.
+
+**`lua_dobuffer` does not run the chunk.** It parses and *starts* it on a Lua
+thread; `lua_executeThreads()` is commented out in `ldo.cpp` because the engine
+pumps threads from its frame loop. Call `Script::ExecuteThreads()` or nothing
+happens and no error is reported.
+
+**Links that are not columns have to be rebuilt after the import.**
+`NDb::BuildMapLinks()` walks the imported tables and hangs each record on the
+one it belongs to: every `Animations` row onto its skeleton's `pAnimations`,
+every `Debris` row onto its material, item models onto uniforms. This
+snapshot's own `Main.cpp` never calls it, because the `game.db` it was written
+against came out of `DataImport`, which called `BuildMapLinks()` itself and
+then serialised the records *with the links already in them*. The retail
+`game.db` is the generic column dump (see 1b), so nothing rebuilds them — and
+the later `Soft/Andy/May03/Main.cpp` shows what the shipping game did:
+`NDatabase::Import( true )` immediately followed by `NDb::BuildMapLinks()`.
+The port does that at the end of `NDatabase::Serialize`
+(`platform/db_retail.cpp`). Symptom before: every skeleton's animation map
+empty, so `CSkeleton::GetAnimation` returned null for every unit and the first
+`CUnitAnimator::StandStill` in a mission wrote through it. Nothing logged.
+The harness now checks it (119/124 skeletons carry animations, 2,045 in all).
+**Any other function in `DBFormat`/`Main` with no caller in the port is
+suspect for the same reason** — grep before assuming the data is at fault.
+
+**65 of the 3,672 `Terrain/` files use an older record layout.**
+`CMETerrainInfo::operator&` reads the terrain through `f.Add( 21, &info )`,
+and 3,607 files do store it nested in chunk 21. The other 65 (18 of them
+substantial — `Terrain/202` holds a real 257×257 heightmap) store
+`STerrainInfo`'s fields at the record's *top* level, the way an earlier
+`CMETerrainInfo` wrote them. `Add` finds no chunk 21, returns without a word,
+and `info` stays default: flat terrain, no type map. Not yet hit by any map
+that has been loaded, but it is waiting. The chunk format is easy to read
+offline if you need to check a file — `<id:1><len><payload>`, where `len` is
+one byte `>> 1` unless bit 0 is set, in which case it is a little-endian dword
+`>> 1`, and chunks nest inside payloads.
+
+**A deploy spot was resolved by scan order, not by distance.**
+`CWorld::AddPlayer` finds the grid place for a deploy spot with
+`GetNearPlaces( SSphere( ptPos, fR ) )`, growing `fR` from 0.63 until the
+result is non-empty, and then takes `res[0]`. `AddNearPoints` fills that
+vector by scanning the layer in increasing y, so `res[0]` is the lowest-y tile
+in the sphere, not the closest one. On `template 4414` the spot's authored z
+is 1.49 m above ground that really is flat at 0 (verified against the retail
+`Terrain/8006`, which ships an all-zero heightmap), so the 3D distance test
+fails until `fR` reaches 2.52 — by which point the sphere touches the map's
+bottom edge and row 0 wins. That is what put the party on the edge of the map,
+and it is what made the `GetDeployPlace` wrap reachable. Fixed (rule set 20):
+among the places on the lowest floor, take the one nearest the spot. The
+"Deploy spot" line now says which place a spot resolved to and how far that is
+from it — on `template 4414` the four spots land 0.05–0.33 m from their marks,
+where spot 0 used to land 1.74 m away and off the terrain.
+
+**The retail UI containers are a revision ahead of this source, and nothing
+says so.** `CLoader::GetControl` answers a request for a control the container
+does not have with a zero-sized, style-0 `SWindowInfo` and one line on the
+console — so the code goes on to build a button that is invisible, unclickable
+and silent, and the screen looks finished while a button does nothing. In the
+other direction, controls the data has and the source does not know about are
+created and drawn by the loader anyway, which is how an opaque `stats_hilight`
+came to sit over half of character generation. Every menu screen in the game
+was affected in one direction or the other. Two things follow: use
+`HasControl()` and lay a stand-in out yourself rather than trusting
+`GetControl`, and dump the container before believing a screen is complete —
+`A5_UI_DUMP=1` on the host harness lists every control of the menu containers
+with its id, type, rectangle, depth, colour and texture count. The nastiest
+form of this is a stand-in that other code then queries: a stand-in is created
+outside `CLoader`, so before rule set 19 it never got
+`EVENT_TEMPLATELOADCOMPLETE` and any child pointer it resolves in that handler
+stayed null — which is what killed the face screen every frame.
+
+**The shipped `.res` files are one revision newer than this source snapshot.**
+Signature `0x96948A22`, not the `0x95938921` in `FilesPackage.cpp`. The chunk
+format itself is unchanged. `Complete/regs.res` is not a package at all despite
+the extension.
+
+**Directories pushed with `adb push` are owned by `shell` with mode 0770** and
+the app cannot enter them. `scripts/push_data.sh` chmods the tree afterwards.
+
+## Things deliberately not done
+
+* **`MemoryMngr`** replaces global `operator new`/`delete` and walks the PE
+  import table for symbol names. Drop it; keep `DumbPow2Alloc` only if profiling
+  says the system allocator is a problem.
+* **`ADOImport`** is COM/ADO against SQL Server, used at content-build time. Its
+  *driver* logic is what `platform/db_retail.cpp` re-creates over the retail
+  `game.db`; the COM part is never built.
+* **`MapEdit`** (362 files) is MFC. It is a desktop tool, not part of the game.
+* **The `.def` files.** Each module was a DLL exporting mangled C++ symbols. On
+  Android everything links into one `.so`; `externA5` becomes plain `extern`.
+
+## Testing
+
+`platform/boot_harness.cpp` drives the ported subsystems against real game data
+and is the port's regression test. It runs in two places from the same source:
+
+* on device, rendered by the GLES console and logged to `adb logcat -s SilentStorm`
+* on the host, headless: `build/host/silentstorm_hosttest <game-data-dir>`,
+  exit code 0 when everything passes
+
+Add a check there whenever a subsystem starts working. Past the harness, the
+game itself runs on device only (it needs the GLES device): `scripts/build.sh
+arm64-v8a && scripts/build_apk.sh arm64-v8a && scripts/run.sh`, then
+`adb logcat -s SilentStorm` — the loop logs `game: N steps, M presents,
+interface depth D` every five seconds, and the D3D shim warns on anything it
+refuses. Note `build_apk.sh` only builds ABIs whose library is *missing*; rebuild
+the library explicitly after source changes. The host target builds in
+seconds and is debuggable with lldb, which is how the 64-bit stream bug above was
+found — do not debug engine logic on a device if the host can reproduce it.

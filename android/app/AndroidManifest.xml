@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Silent Storm - Android port.
+
+  There is no Java code: the app is a NativeActivity whose whole implementation
+  is libsilentstorm.so (platform/android_main.cpp).  That mirrors the original
+  Win32 shell in Soft/Andy/Jan03/a5dll/Game, which was likewise a thin window
+  wrapper around the engine DLL.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="org.silentstorm.port">
+
+    <uses-feature android:glEsVersion="0x00020000" android:required="true" />
+
+    <!-- The port reads game data from the app's own external files directory,
+         which needs no runtime permission.  See docs/RUNNING.md. -->
+    <application
+        android:label="Silent Storm"
+        android:hasCode="false"
+        android:allowBackup="false"
+        android:extractNativeLibs="true">
+
+        <!-- Lets simpleperf (adb shell) and other shell profilers attach to
+             release builds. -->
+        <profileable android:shell="true" />
+
+        <!-- configChanges must cover smallestScreenSize as well as screenSize:
+             on a folding device unfolding changes it, and any configuration
+             change not listed here destroys the NativeActivity and re-runs the
+             whole boot (mount, game.db, harness) from scratch. -->
+        <activity
+            android:name="android.app.NativeActivity"
+            android:label="Silent Storm"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:resizeableActivity="true"
+            android:windowSoftInputMode="adjustNothing"
+            android:configChanges="orientation|keyboardHidden|keyboard|navigation|screenSize|smallestScreenSize|screenLayout|density|uiMode|fontScale|layoutDirection">
+
+            <!-- Tells NativeActivity which library exports android_main. -->
+            <meta-data android:name="android.app.lib_name" android:value="silentstorm" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

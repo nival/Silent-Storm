@@ -1,0 +1,5 @@
+; psPointCubeMapDepth (id 76) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+dp3_sat r0, t0_bx2, v0_bx2
+

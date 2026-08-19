@@ -1,0 +1,13 @@
+; psShadowTestP (id 24) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+add_sat r0, t0, -v0
+dp3 r0, r0_bx2, c0
+
+
+; ---- ps.1.4 variant ----
+ps.1.4
+texld r0, t0_dw.xyw
+add_sat r0, r0, -v0
+dp3 r0, r0, c0
+

@@ -1,0 +1,27 @@
+; psFullPerPixel4 (id 45) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+tex t1
+tex t2
+dp3_sat r0, t0_bx2, c0
+mul r0.rgb, r0, c1
+mad r1, v0, t1.a, t1
+mul_x4 r1, r1, c2
+mul r0, r0, t2
+mul_x4 r0, r0, c2
+add r0.rgb, r0, r1
++add r0.a, r0.a, 1-r0.a
+
+
+; ---- ps.1.4 variant ----
+ps.1.4
+texld r0, t0.xyz
+texld r1, t1_dw.xyw
+texld r2, t2_dw.xyw
+dp3_sat r5, r0_bx2, c0
+mul r5.rgb, r5, c1
+mad r1, v0, r1.a, r1
+mad r5, r5, r2, r1
+mul_x4 r0.rgb, r5, c2
++add r0.a, r0.a, 1-r0.a
+

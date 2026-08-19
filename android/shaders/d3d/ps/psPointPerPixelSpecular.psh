@@ -1,0 +1,19 @@
+; psPointPerPixelSpecular (id 62) -- recovered from GfxShaders.cpp DBUG chunk
+ps.1.1
+tex t0
+texreg2ar t1, t0
+tex t2
+mul r0, t1, v0
+mul r0, r0, t2
+
+
+; ---- ps.1.4 variant ----
+ps.1.4
+texld r0, t0_dw.xyw
+mov r0.r, r0.a
+phase
+texld r1, r0.xyz
+texld r2, t2.xyz
+mul r0, r1, v0
+mul r0, r0, r2
+

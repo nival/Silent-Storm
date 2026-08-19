@@ -17,7 +17,7 @@ not as a summary of what happened.
         Main          ████████████████████  269/269 files compile and link; the game loop runs on device
         d3d9gles      ██████████████████░░  D3D9 device on GLES 3.0; 155 shaders translated; first frames drawn
         Input         ████████████░░░░░░░░  NInput on Android keys/touch; camera scheme still to design
-        FModSound     ████████░░░░░░░░░░░░  NFMSound implemented as a silent null back end
+        FModSound     ████████████████░░░░  NFMSound on a software mixer + AAudio; music streams on device, 3D voices untested in a mission
 ```
 
 **On the Samsung Z Fold7 (2026-08-18, end of day):** the app boots, runs the
@@ -37,8 +37,11 @@ menu scene regardless), the cursor texture, then touch → menu navigation.
 Debug switches (in `<external files>/env.txt`, `NAME=VALUE` per line):
 `A5_D3D_TRACE=<frames>` logs every draw and a back-buffer histogram,
 `A5_D3D_FORCE=nocull,nodepth,noblend` overrides state, `A5_DB_DUMP=1` /
-`A5_DB_DUMP_ROWS=<table>` dump the database. The engine console is echoed to
-logcat as `console: ...`.
+`A5_DB_DUMP_ROWS=<table>` dump the database, `A5_AUDIO_TRACE=1` logs every
+sound/stream start (the 5-s `audio:` stats line — voices, streams, output
+peak, underruns — is always on), `A5_START_CFG=<cfg>` runs that cfg instead of
+`start.cfg` (e.g. a file with `template 4414` to drop into a mission). The
+engine console is echoed to logcat as `console: ...`.
 
 ## The order the remaining work should happen in
 
@@ -150,10 +153,36 @@ differences — is [RENDERER.md](RENDERER.md). In short:
   `Bind.cpp` (action mapping) is portable and sits on top. A turn-based tactical
   game maps reasonably onto touch, but the port still needs a camera-control
   scheme of its own (pinch/drag → the camera binds).
-* **Audio**: `FModSound/FMsound.h` is staged and `platform/audio_null.cpp`
-  implements the whole `NFMSound` interface silently — every call succeeds and
-  hands back a live handle, so the game runs without sound. The real back end
-  (Oboe, or OpenSL ES) replaces that file behind the same functions.
+* **Audio** — done for what can be exercised so far. `FModSound/FMsound.h` is
+  the seam (Main only ever calls `NFMSound::*`); `platform/audio_android.cpp`
+  implements it on a software mixer of its own: 64 sample voices + streams,
+  float mixing at the device rate with linear resampling, on a mixer thread
+  that writes to **AAudio** with blocking writes (AAudio is `dlopen`ed so
+  minSdk stays 24; without it the mixer runs against a clock, silently).
+  Semantics follow the FMOD wrapper: dropping the last `CObj<>` to a
+  `CSound2D/3D` stops the voice; 3D positions go through the listener's
+  projection matrix (`|(2x, 2y, w)|` in clip space) with FMOD's logarithmic
+  rolloff between the sample's min/max distance; volumes are 0..255, SFX
+  master scales voices, music volume is absolute per stream; a stream's
+  `IsPlaying()` goes false when it ends, which is what makes `CSoundScene`
+  restart the ambient after 120 s. One deliberate divergence: `PlayStream()`
+  hands back the stream that is already playing the same file instead of
+  layering a second copy — every pushed menu interface creates its own sound
+  scene and starts the ambient on its first `Draw()`.
+  Decoders (`platform/audio_decode.cpp`, no engine dependency): the retail
+  `Sounds/<id>` files are Ogg Vorbis (6910, encoded with libVorbis 1.0
+  beta3/RC1 — **floor type 0**, which stb_vorbis/minivorbis cannot decode, so
+  the Xiph reference libogg+libvorbis are vendored under `thirdparty/`) and
+  RIFF WAVE (1300 Microsoft ADPCM, 80 IMA ADPCM, 204 PCM); music
+  `Res\Music\*.wav` is Ogg Vorbis inside. `build/host/silentstorm_audiotest`
+  decodes every file and compares the WAVs sample-for-sample with ffmpeg:
+  1584/1584 bit-exact, 6940/6940 Ogg decode to their declared length. Music
+  is needed on the device: `Versions/Current/res/Music/*.wav` → `<data
+  root>/res/Music/` (`push_data.sh --full` covers `Sounds/`, not this).
+  On the Z Fold7 the main-menu track streams at 48 kHz with 0 underruns.
+  Not yet exercised: 3D voices and sample fades — they need a mission, and
+  missions still crash in `NAI::CPathNetwork::GetCP` on unit creation.
+  Open: OpenSL ES for API 24/25 (silent there today), the app's audio focus.
 * **Video**: Bink is licensed and absent. Cutscenes should be skipped or the
   container replaced; nothing else depends on it.
 * **LifeStudio:HEAD** (facial animation for dialogue heads, proprietary) is

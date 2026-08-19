@@ -27,6 +27,9 @@
 #ifdef A5_HAVE_MAIN
 #include "game_entry.h"
 #endif
+#ifdef A5_HAVE_AUDIO
+#include "audio_android.h"
+#endif
 
 #define LOG_TAG "SilentStorm"
 #define LOGI( ... ) __android_log_print( ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__ )
@@ -361,6 +364,20 @@ void HandleCommand( android_app *pApp, int32_t nCommand )
         case APP_CMD_GAINED_FOCUS:
         case APP_CMD_LOST_FOCUS:
             break;
+
+        /* Background: silence the mixer's output stream (nothing advances while
+         * we are away, so sounds resume where they were). */
+        case APP_CMD_PAUSE:
+        case APP_CMD_STOP:
+#ifdef A5_HAVE_AUDIO
+            a5_audio_set_active( 0 );
+#endif
+            break;
+        case APP_CMD_RESUME:
+#ifdef A5_HAVE_AUDIO
+            a5_audio_set_active( 1 );
+#endif
+            break;
     }
 }
 
@@ -446,6 +463,9 @@ void android_main( android_app *pApp )
                               nSteps, g_nPresents, a5_game_interface_depth(), st.nDraws, st.nDrawsNoProgram, st.nClears );
                         if ( getenv( "A5_D3D_SHADERS" ) )
                             LOGI( "game: draws by shader: %s", A5D3DDrawsByShader( 1 ) );
+#ifdef A5_HAVE_AUDIO
+                        a5_audio_log_stats();
+#endif
                     }
                 }
                 if ( !a5_game_step( 1 ) )

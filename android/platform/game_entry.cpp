@@ -7,6 +7,8 @@
 /* Main's own prologue: the same environment its files compile in */
 #include "Main/StdAfx.h"
 #include "game_entry.h"
+
+#include <stdlib.h>
 #include "a5_log.h"
 
 #include "Main/GInit.h"
@@ -74,11 +76,18 @@ extern "C" int a5_game_init( const char **ppszError )
      * video, absent) and has "mainmenu" commented out; when the data root has
      * no start.cfg we go straight to the main menu instead. */
     string szCfg( "start.cfg" );
+    /* A5_START_CFG=<file> (env.txt): run that cfg instead of start.cfg -- e.g. a
+     * file holding "template 4414" drops straight into a mission for testing */
+    if ( const char *pszStart = getenv( "A5_START_CFG" ) )
+    {
+        szCfg = pszStart;
+        a5_log( A5_PRIORITY_INFO, "game: A5_START_CFG=%s", pszStart );
+    }
     {
         CFileStream probe;
         if ( !probe.TryOpenRead( szCfg.c_str() ) )
         {
-            a5_log( A5_PRIORITY_INFO, "game: no start.cfg in the data root - going to the main menu" );
+            a5_log( A5_PRIORITY_INFO, "game: no %s in the data root - going to the main menu", szCfg.c_str() );
             szCfg.clear();
             g_bStartMainMenu = true;
         }

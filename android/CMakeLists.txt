@@ -200,6 +200,43 @@ target_include_directories(a5dbformat PRIVATE ${PLATFORM_DIR})
 target_link_libraries(a5dbformat PUBLIC a5fileio a5miscdll)
 
 # ---------------------------------------------------------------------------
+#  Audio decoders -- libogg / libvorbis, and the port's own WAV/ADPCM decoder
+# ---------------------------------------------------------------------------
+#  Audio: platform/audio_android.cpp is NFMSound on a software mixer with
+#  AAudio output (loaded with dlopen, so minSdk stays 24).  Ogg Vorbis is
+#  decoded by the Xiph reference libraries vendored under thirdparty/ (libogg
+#  1.3.5, libvorbis 1.3.7, BSD): the game's 2002 encoder wrote floor-type-0
+#  streams, which the single-file decoders (stb_vorbis) do not support.
+set(THIRDPARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty)
+add_library(a5ogg STATIC
+    ${THIRDPARTY_DIR}/ogg/src/bitwise.c
+    ${THIRDPARTY_DIR}/ogg/src/framing.c)
+target_include_directories(a5ogg PUBLIC ${THIRDPARTY_DIR}/ogg/include)
+target_compile_options(a5ogg PRIVATE -O2 -Wno-everything)
+#  Decoder-side libvorbis: everything but vorbisenc.c and the tools.  (block.c
+#  references the encoder's psy/envelope/bitrate objects, so those stay.)
+add_library(a5vorbis STATIC
+    ${THIRDPARTY_DIR}/vorbis/lib/analysis.c   ${THIRDPARTY_DIR}/vorbis/lib/bitrate.c
+    ${THIRDPARTY_DIR}/vorbis/lib/block.c      ${THIRDPARTY_DIR}/vorbis/lib/codebook.c
+    ${THIRDPARTY_DIR}/vorbis/lib/envelope.c   ${THIRDPARTY_DIR}/vorbis/lib/floor0.c
+    ${THIRDPARTY_DIR}/vorbis/lib/floor1.c     ${THIRDPARTY_DIR}/vorbis/lib/info.c
+    ${THIRDPARTY_DIR}/vorbis/lib/lpc.c        ${THIRDPARTY_DIR}/vorbis/lib/lsp.c
+    ${THIRDPARTY_DIR}/vorbis/lib/mapping0.c   ${THIRDPARTY_DIR}/vorbis/lib/mdct.c
+    ${THIRDPARTY_DIR}/vorbis/lib/psy.c        ${THIRDPARTY_DIR}/vorbis/lib/registry.c
+    ${THIRDPARTY_DIR}/vorbis/lib/res0.c       ${THIRDPARTY_DIR}/vorbis/lib/sharedbook.c
+    ${THIRDPARTY_DIR}/vorbis/lib/smallft.c    ${THIRDPARTY_DIR}/vorbis/lib/synthesis.c
+    ${THIRDPARTY_DIR}/vorbis/lib/vorbisfile.c ${THIRDPARTY_DIR}/vorbis/lib/window.c)
+target_include_directories(a5vorbis PUBLIC ${THIRDPARTY_DIR}/vorbis/include)
+target_include_directories(a5vorbis PRIVATE ${THIRDPARTY_DIR}/vorbis/lib)
+target_compile_options(a5vorbis PRIVATE -O2 -Wno-everything)
+target_link_libraries(a5vorbis PUBLIC a5ogg m)
+#  The decoders themselves (platform/audio_decode.cpp) have no engine or Android
+#  dependency, so the host build can check them against ffmpeg.
+add_library(a5audiodecode STATIC ${PLATFORM_DIR}/audio_decode.cpp)
+target_include_directories(a5audiodecode PUBLIC ${PLATFORM_DIR})
+target_link_libraries(a5audiodecode PUBLIC a5vorbis)
+
+# ---------------------------------------------------------------------------
 #  Main -- the engine + game (154k lines).  Survey target: compiles every file
 #  as an object library so errors can be counted; nothing links against it yet.
 #  Enable with -DA5_BUILD_MAIN=ON.
@@ -246,6 +283,9 @@ if(NOT ANDROID)
     target_link_libraries(silentstorm_hosttest a5script a5dbformat a5image a5miscdll a5fileio a5misc a5compat)
     set_property(TARGET silentstorm_hosttest PROPERTY LINK_LIBRARY_OVERRIDE
         "WHOLE_ARCHIVE,a5script,a5dbformat,a5image,a5miscdll,a5fileio,a5misc")
+    #  audio_decode_test: decode every file given, compare WAVs with ffmpeg.
+    add_executable(silentstorm_audiotest ${CMAKE_CURRENT_SOURCE_DIR}/tools/audio_decode_test.cpp)
+    target_link_libraries(silentstorm_audiotest a5audiodecode)
     return()
 endif()
 
@@ -277,11 +317,19 @@ target_include_directories(silentstorm PRIVATE
     ${PLATFORM_DIR}
 )
 target_compile_options(silentstorm PRIVATE ${ENGINE_COMPILE_OPTIONS})
+#  -DA5_AUDIO_NULL=ON swaps the silent NFMSound back end back in for bring-up.
+option(A5_AUDIO_NULL "Build the silent NFMSound back end instead of the mixer" OFF)
 if(A5_BUILD_MAIN)
     target_sources(silentstorm PRIVATE
         ${PLATFORM_DIR}/game_entry.cpp
-        ${PLATFORM_DIR}/input_android.cpp
-        ${PLATFORM_DIR}/audio_null.cpp)
+        ${PLATFORM_DIR}/input_android.cpp)
+    if(A5_AUDIO_NULL)
+        target_sources(silentstorm PRIVATE ${PLATFORM_DIR}/audio_null.cpp)
+    else()
+        target_sources(silentstorm PRIVATE ${PLATFORM_DIR}/audio_android.cpp)
+        target_link_libraries(silentstorm a5audiodecode)
+        target_compile_definitions(silentstorm PRIVATE A5_HAVE_AUDIO=1)
+    endif()
     target_compile_options(silentstorm PRIVATE ${ENGINE_COMPILE_OPTIONS})
     #  Whole-archive: the engine registers classes, console commands and
     #  database tables from static initialisers (START_REGISTER,

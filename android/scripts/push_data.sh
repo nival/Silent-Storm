@@ -43,6 +43,17 @@ fi
 if [ "$MODE" = "full" ]; then
     echo "==> pushing all of $SOURCE (this takes a while)"
     "$ADB" push "$SOURCE/." "$TARGET" >/dev/null
+    # The music streams ("Res\Music\*.wav" in the Musics table -- Ogg Vorbis
+    # inside) are not under Complete/; the repository has them in
+    # Versions/Current/res/Music.  Skip the .sfap0 editor peak files.
+    MUSIC="$REPO_ROOT/Versions/Current/res/Music"
+    if [ -d "$MUSIC" ] && [ ! -d "$SOURCE/res/Music" ]; then
+        echo "==> pushing music from $MUSIC"
+        "$ADB" shell mkdir -p "$TARGET/res/Music"
+        for f in "$MUSIC"/*.wav; do
+            [ -f "$f" ] && "$ADB" push "$f" "$TARGET/res/Music/" >/dev/null
+        done
+    fi
 else
     # Enough for the boot harness: every package, the script sources, and the
     # small numbered asset directories.  Textures/ and Geometries/ are tens of

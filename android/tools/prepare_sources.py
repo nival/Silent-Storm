@@ -3134,6 +3134,58 @@ static void CreateChecker( CSWTextureData *pTexture )
 			pPlay = new CHoverButton( sEvent.pLoader->GetControl( "play" ) );""",
     ),
     (
+        "Main/wMain.cpp",
+        "After the auto-load scripts, run the port's Lua prelude "
+        "(platform/script_prelude.cpp): stand-ins for the ~100 script API "
+        "functions the retail scripts call that this snapshot does not have -- "
+        "in Lua 4 one nil call aborts the whole script.",
+        """		if ( IsValid( pScriptName ) )
+			pOwnScript->RunScriptFile( pScriptName->szFileName );
+	}
+}""",
+        """		if ( IsValid( pScriptName ) )
+			pOwnScript->RunScriptFile( pScriptName->szFileName );
+	}
+	{	// [android] stand-ins for the script API this snapshot lacks
+		const char *pszPrelude = a5_script_prelude();
+		pOwnScript->DoBuffer( pszPrelude, (int)strlen( pszPrelude ), "a5_script_prelude" );
+	}
+}""",
+    ),
+    (
+        "Main/wMain.cpp",
+        "Declaration for the prelude hook above (platform/script_prelude.cpp).",
+        """void CWorld::RunAutoLoadScripts()
+{""",
+        """extern "C" const char *a5_script_prelude( void );   // [android] platform/script_prelude.cpp
+void CWorld::RunAutoLoadScripts()
+{""",
+    ),
+    (
+        "Script/ldo.cpp",
+        "Diagnostics: a script error goes to the log with its Lua stack (source, "
+        "function, current line) -- the console shows only the message, and the "
+        "retail scripts call API this snapshot lacks.",
+        """			NScript::luaLastError.stack.push_back( trace );
+		}
+		//
+		++nDepth;
+	}
+}""",
+        """			NScript::luaLastError.stack.push_back( trace );
+			{	// [android]
+				char szBuf[ 320 ];
+				sprintf( szBuf, "[android] script error '%s' at depth %d: %s in %s (line %d, defined %d)\\n", s, nDepth,
+					debugInfo.name ? debugInfo.name : "?", debugInfo.source ? debugInfo.source : "?", debugInfo.currentline, debugInfo.linedefined );
+				OutputDebugString( szBuf );
+			}
+		}
+		//
+		++nDepth;
+	}
+}""",
+    ),
+    (
         "Main/GRenderExecute.cpp",
         "Retail ambient lights have VapourSwitchTime = 0 (no vapour switching); "
         "this source divides the time by it, so the dynamic-fog constants become "

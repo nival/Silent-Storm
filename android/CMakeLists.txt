@@ -322,6 +322,7 @@ option(A5_AUDIO_NULL "Build the silent NFMSound back end instead of the mixer" O
 if(A5_BUILD_MAIN)
     target_sources(silentstorm PRIVATE
         ${PLATFORM_DIR}/game_entry.cpp
+        ${PLATFORM_DIR}/script_prelude.cpp
         ${PLATFORM_DIR}/input_android.cpp)
     if(A5_AUDIO_NULL)
         target_sources(silentstorm PRIVATE ${PLATFORM_DIR}/audio_null.cpp)
